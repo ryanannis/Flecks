@@ -1,0 +1,31 @@
+<!doctype html>
+<html>
+<head>
+</head>
+<body>
+    <script src="dist/bundle.js"></script>
+    <script>
+        const voroni = new VoroniRenderer(500, 500, 200);
+        const canvas = voroni.getCanvasDOMNode();
+        const body = document.getElementsByTagName("BODY")[0];
+        voroni.render();
+        body.appendChild(canvas);
+
+        canvas.addEventListener("mousedown", getPosition, false);
+
+        let i = 0;
+        function getPosition(event)
+        {
+            let x = event.x;
+            let y = event.y;
+
+            x -= canvas.offsetLeft;
+            y -= canvas.offsetTop;
+
+            voroni.addPoint(x,y);
+            voroni.render();
+        }
+        
+    </script>
+</body>
+</html>

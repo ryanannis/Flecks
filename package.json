@@ -1,0 +1,35 @@
+{
+  "name": "voronoi-stippler",
+  "version": "1.0.0",
+  "description": "Render Voroni stipples fully on-gpu, in WebGL",
+  "main": "index.js",
+  "scripts": {
+    "webpack": "webpack --watch --display-error-details",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/minimumcut/VoronoiStippler.git"
+  },
+  "keywords": [
+    "WebGL",
+    "Voroni",
+    "Computer",
+    "Graphics"
+  ],
+  "author": "Ryan Annis",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/minimumcut/VoronoiStippler.git"
+  },
+  "homepage": "https://github.com/minimumcut/VoronoiStippler.git#readme",
+  "dependencies": {
+    "babel-core": "^6.22.1",
+    "babel-loader": "^6.2.10",
+    "babel-preset-es2015": "^6.22.0",
+    "babel-preset-stage-0": "^6.22.0",
+    "gl-matrix": "^2.3.2",
+    "offscreen-webgl-voroni": "https://github.com/minimumcut/WebGL-Voroni-Approximator",
+    "webpack": "^1.14.0"
+  }
+}
