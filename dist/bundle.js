@@ -65,7 +65,7 @@
 
 	var voroniVertexShader = '\n    attribute vec3 vertexPosition;\n\n    uniform mat4 orthoMatrix;\n    uniform mat4 modelViewMatrix;\n\n    void main(void) {\n        gl_Position = orthoMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);\n    }\n';
 
-	var voroniFragmentShader = '\n    precision mediump float;\n    uniform vec4 vertexColor;\n    void main(void) { \n        gl_FragColor =  vertexColor;\n    }\n';
+	var voroniFragmentShader = '\n    precision mediump float;\n    void main(void) { \n        gl_FragColor =  vec4(1.0, 1.0, 1.0, 1.0);\n    }\n';
 
 	/**
 	 * Utility for generating offscreen Voroni Diagrams
@@ -75,17 +75,12 @@
 	    /**
 	     * @param {Number} width
 	     * @param {Number} height
-	     * @param {Number} coneResolution
 	     */
-	    function VoroniRenderer(width, height) {
-	        var coneResolution = arguments.length > 2 && arguments[2] !== undefined ? arguments[2] : 100;
-	        var debug = arguments[3];
-
+	    function VoroniRenderer(width, height, debug) {
 	        _classCallCheck(this, VoroniRenderer);
 
 	        this.width = width;
 	        this.height = height;
-	        this.coneResolution = coneResolution;
 	        this.debug = debug;
 
 	        /* Init offscreen canvas */
@@ -95,7 +90,7 @@
 
 	        this.gl = this.canvas.getContext('webgl');
 	        this.glPointers = { attributes: {}, uniforms: {}, buffers: {} };
-	        this.points = [];
+
 	        this._initGL();
 	    }
 
@@ -166,7 +161,7 @@
 	        }
 
 	        /**
-	         * Creates cone with the given number of edges parametrically.
+	         * Create quad
 	         * @param {Number} x x-coordinate of the center on the current coordinate system
 	         * @param {Number} y x-coordinate of the center on the current coordinate system
 	         * @param {Number} edges The number of edges for the base to have (not the total)
@@ -174,20 +169,9 @@
 	        */
 
 	    }, {
-	        key: '_createCone',
-	        value: function _createCone(x, y, edges) {
-	            var pi = Math.PI;
-	            var vertices = new Array(edges * (3 + 2));
-	            vertices[0] = x;
-	            vertices[1] = y;
-	            vertices[2] = -3;
-	            for (var i = 1; i <= edges + 2; i++) {
-	                var ratio = i / edges;
-	                vertices[i * 3] = 3 * (x + Math.sin(2 * pi * ratio));
-	                vertices[i * 3 + 1] = 3 * (y + Math.cos(2 * pi * ratio));
-	                vertices[i * 3 + 2] = -5;
-	            }
-	            return vertices;
+	        key: '_createQuad',
+	        value: function _createQuad(x, y, edges) {
+	            return [-1.0, -1.0, -1.0, -1.0, 1.0, -1.0, 1.0, -1.0, -1.0, 1.0, 1.0, -1.0];
 	        }
 
 	        /**
@@ -210,7 +194,6 @@
 	        value: function _getUniformLocations() {
 	            this.glPointers.uniforms.orthoMatrix = this.gl.getUniformLocation(this.glPointers.shaderProgram, "orthoMatrix");
 	            this.glPointers.uniforms.modelViewMatrix = this.gl.getUniformLocation(this.glPointers.shaderProgram, "modelViewMatrix");
-	            this.glPointers.uniforms.vertexColor = this.gl.getUniformLocation(this.glPointers.shaderProgram, "vertexColor");
 	        }
 
 	        /**
@@ -230,11 +213,10 @@
 	    }, {
 	        key: '_bindDataToBuffers',
 	        value: function _bindDataToBuffers() {
-
 	            /* Bind Vertex Data*/
 	            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.glPointers.buffers.vertexPositionBuffer);
-	            var coneVertices = this._createCone(0, 0, this.coneResolution);
-	            this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array(coneVertices), this.gl.STATIC_DRAW);
+	            var quadVertices = this._createQuad();
+	            this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array(quadVertices), this.gl.STATIC_DRAW);
 	        }
 
 	        /**
@@ -257,15 +239,12 @@
 	                requestAnimationFrame(function () {
 	                    return _this.tick();
 	                });
-	                //this.coneResolution++;
 	                this.render();
 	            }
 	        }
 	    }, {
 	        key: 'render',
 	        value: function render() {
-	            var _this2 = this;
-
 	            if (this.debug) {
 	                this._bindDataToBuffers();
 	            }
@@ -276,28 +255,12 @@
 	            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.glPointers.buffers.vertexPositionBuffer);
 	            this.gl.vertexAttribPointer(this.glPointers.attributes.vertexPosition, 3, this.gl.FLOAT, false, 0, 0);
 
-	            /* Draw a cone for each point*/
-	            this.points.forEach(function (point) {
-	                /* Setup model view matrix for next voroni point */
-	                var modelViewMatrix = _glMatrix.mat4.create();
-	                _glMatrix.mat4.translate(modelViewMatrix, modelViewMatrix, [point.x / _this2.width * 2 - 1, -(point.y / _this2.height * 2 - 1), 0.0]);
-	                _this2.gl.uniformMatrix4fv(_this2.glPointers.uniforms.modelViewMatrix, false, modelViewMatrix);
+	            /* Setup model view matrix for next voroni point */
+	            var modelViewMatrix = _glMatrix.mat4.create();
 
-	                console.log(point);
+	            this.gl.uniformMatrix4fv(this.glPointers.uniforms.modelViewMatrix, false, modelViewMatrix);
 
-	                _this2.gl.uniform4f(_this2.glPointers.uniforms.vertexColor, point.r, point.g, point.b, 1.0);
-	                _this2.gl.drawArrays(_this2.gl.TRIANGLE_FAN, 0, _this2.coneResolution + 2);
-	            });
-	        }
-	        /**
-	         * Renders with instancing enabled, which should speed rendering up greatly especially for high 
-	         * cone resolution.  However, support is limited so it is kept as an option.
-	         */
-
-	    }, {
-	        key: 'renderInstanced',
-	        value: function renderInstanced() {
-	            //todo
+	            this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
 	        }
 	    }, {
 	        key: 'getCanvasDOMNode',
@@ -311,16 +274,6 @@
 	            this.height = height;
 	            this.canvas.width = width;
 	            this.canvas.height = height;
-	        }
-	    }, {
-	        key: 'addPoint',
-	        value: function addPoint(x, y, r, b, g) {
-	            this.points.push({ x: x, y: y, r: r || Math.random(), g: g || Math.random(), b: b || Math.random() });
-	        }
-	    }, {
-	        key: 'clearPoints',
-	        value: function clearPoints() {
-	            this.points = [];
 	        }
 	    }]);
 

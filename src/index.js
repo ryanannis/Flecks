@@ -13,9 +13,8 @@ const voroniVertexShader = `
 
 const voroniFragmentShader = `
     precision mediump float;
-    uniform vec4 vertexColor;
     void main(void) { 
-        gl_FragColor =  vertexColor;
+        gl_FragColor =  vec4(1.0, 1.0, 1.0, 1.0);
     }
 `;
 
@@ -26,12 +25,10 @@ class VoroniRenderer{
     /**
      * @param {Number} width
      * @param {Number} height
-     * @param {Number} coneResolution
      */
-    constructor(width, height, coneResolution = 100, debug){
+    constructor(width, height, debug){
         this.width = width;
         this.height = height;
-        this.coneResolution = coneResolution;
         this.debug = debug;
         
         /* Init offscreen canvas */
@@ -41,7 +38,7 @@ class VoroniRenderer{
 
         this.gl = this.canvas.getContext('webgl');
         this.glPointers = {attributes: {}, uniforms: {}, buffers: {}};
-        this.points = [];
+
         this._initGL();
     }
     _initGL(){
@@ -104,25 +101,19 @@ class VoroniRenderer{
     }
 
     /**
-     * Creates cone with the given number of edges parametrically.
+     * Create quad
      * @param {Number} x x-coordinate of the center on the current coordinate system
      * @param {Number} y x-coordinate of the center on the current coordinate system
      * @param {Number} edges The number of edges for the base to have (not the total)
      * @return {???} 
     */
-    _createCone(x, y, edges){
-        const pi = Math.PI;
-        const vertices = new Array(edges*(3+2));
-        vertices[0] = x;
-        vertices[1] = y;
-        vertices[2] = -3;
-        for(let i = 1 ; i <= edges+2; i++){
-            const ratio = i/edges;
-            vertices[i*3] = 3 * (x + Math.sin(2 * pi * ratio));
-            vertices[i*3+1] = 3 * (y + Math.cos(2 * pi * ratio));
-            vertices[i*3+2] = -5;
-        }
-        return vertices;
+    _createQuad(x, y, edges){
+        return [
+            -1.0, -1.0, -1.0,
+            -1.0, 1.0, -1.0,
+            1.0, -1.0, -1.0,
+            1.0, 1.0, -1.0,
+        ];
     }
 
     /**
@@ -139,7 +130,6 @@ class VoroniRenderer{
     _getUniformLocations(){
          this.glPointers.uniforms.orthoMatrix = this.gl.getUniformLocation(this.glPointers.shaderProgram, "orthoMatrix");
          this.glPointers.uniforms.modelViewMatrix = this.gl.getUniformLocation(this.glPointers.shaderProgram, "modelViewMatrix");
-         this.glPointers.uniforms.vertexColor = this.gl.getUniformLocation(this.glPointers.shaderProgram, "vertexColor");
     }
 
     /**
@@ -153,11 +143,10 @@ class VoroniRenderer{
      * Generates geometry and color data then binds it to the appropriate buffers
      */
     _bindDataToBuffers(){
-
         /* Bind Vertex Data*/
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.glPointers.buffers.vertexPositionBuffer);
-        const coneVertices = this._createCone(0, 0, this.coneResolution);
-        this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array(coneVertices), this.gl.STATIC_DRAW);
+        const quadVertices = this._createQuad();
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array(quadVertices), this.gl.STATIC_DRAW);
     }
 
     /**
@@ -176,7 +165,6 @@ class VoroniRenderer{
     tick(){
         if(this.debug){
             requestAnimationFrame(() => this.tick());
-            //this.coneResolution++;
             this.render();
         }
     }
@@ -191,34 +179,16 @@ class VoroniRenderer{
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.glPointers.buffers.vertexPositionBuffer);
         this.gl.vertexAttribPointer(this.glPointers.attributes.vertexPosition, 3, this.gl.FLOAT, false, 0, 0);
 
+        /* Setup model view matrix for next voroni point */
+        const modelViewMatrix = mat4.create();
 
-        /* Draw a cone for each point*/
-        this.points.forEach((point) => {
-            /* Setup model view matrix for next voroni point */
-            const modelViewMatrix = mat4.create();
-            mat4.translate(
-                modelViewMatrix,
-                modelViewMatrix,
-                [point.x/this.width*2-1, -(point.y/this.height*2-1), 0.0]
-            );
-            this.gl.uniformMatrix4fv(
-                this.glPointers.uniforms.modelViewMatrix,
-                false,
-                modelViewMatrix
-            );
+        this.gl.uniformMatrix4fv(
+            this.glPointers.uniforms.modelViewMatrix,
+            false,
+            modelViewMatrix
+        );
 
-            console.log(point);
-
-            this.gl.uniform4f(this.glPointers.uniforms.vertexColor, point.r, point.g, point.b, 1.0);
-            this.gl.drawArrays(this.gl.TRIANGLE_FAN, 0, this.coneResolution+2);
-        });
-    }
-    /**
-     * Renders with instancing enabled, which should speed rendering up greatly especially for high 
-     * cone resolution.  However, support is limited so it is kept as an option.
-     */
-    renderInstanced(){
-        //todo
+        this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
     }
     getCanvasDOMNode(){
         return this.canvas;
@@ -229,12 +199,6 @@ class VoroniRenderer{
         this.height = height;
         this.canvas.width = width;
         this.canvas.height = height;
-    }
-    addPoint(x, y, r, b, g){
-        this.points.push({x, y, r: r || Math.random(), g: g || Math.random(), b: b || Math.random()});
-    }
-    clearPoints(){
-        this.points = [];
     }
 }
 
