@@ -65,7 +65,7 @@
 
 	var voroniVertexShader = '\n    attribute vec3 vertexPosition;\n\n    uniform mat4 orthoMatrix;\n    uniform mat4 modelViewMatrix;\n\n    void main(void) {\n        gl_Position = orthoMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);\n    }\n';
 
-	var voroniFragmentShader = '\n    precision mediump float;\n    void main(void) { \n        gl_FragColor =  vec4(1.0, 1.0, 1.0, 1.0);\n    }\n';
+	var voroniFragmentShader = '\n    precision highp float; //fuck gl es 2.0 and no texelfetch\n    \n    uniform sampler2D imageSampler;\n    uniform vec2 windowDimensions;\n\n    void main(void) { \n        vec2 coord = vec2(gl_FragCoord.x / windowDimensions.x, gl_FragCoord.y / windowDimensions.y);\n        vec4 myTexel = texture2D(imageSampler, coord);\n        gl_FragColor = myTexel  ;\n    }\n';
 
 	/**
 	 * Utility for generating offscreen Voroni Diagrams
@@ -89,7 +89,7 @@
 	        this.canvas.height = height;
 
 	        this.gl = this.canvas.getContext('webgl');
-	        this.glPointers = { attributes: {}, uniforms: {}, buffers: {} };
+	        this.glPointers = { attributes: {}, uniforms: {}, buffers: {}, textures: {} };
 
 	        this._initGL();
 	    }
@@ -108,10 +108,35 @@
 	            this._bindDataToUniforms();
 	            this._bindDataToBuffers();
 
+	            /* Setup Textures */
+	            this._initImageAsTexture();
+
 	            /* GL state toggles*/
 	            this.gl.clearColor(0.0, 0.0, 0.0, 1.0);
 	            this.gl.enable(this.gl.DEPTH_TEST);
 	            this.gl.depthFunc(this.gl.LEQUAL);
+	        }
+	    }, {
+	        key: '_initImageAsTexture',
+	        value: function _initImageAsTexture() {
+	            var _this = this;
+
+	            var catImage = new Image();
+	            catImage.src = "static/cat.jpg";
+
+	            this.glPointers.textures.imageTexture = this.gl.createTexture();
+	            catImage.onload = function () {
+	                _this.gl.bindTexture(_this.gl.TEXTURE_2D, _this.glPointers.textures.imageTexture);
+	                _this.gl.pixelStorei(_this.gl.UNPACK_FLIP_Y_WEBGL, true);
+	                _this.gl.texImage2D(_this.gl.TEXTURE_2D, 0, _this.gl.RGBA, _this.gl.RGBA, _this.gl.UNSIGNED_BYTE, catImage);
+	                console.log(catImage);
+	                /* no texelfetch */
+	                _this.gl.texParameteri(_this.gl.TEXTURE_2D, _this.gl.TEXTURE_MIN_FILTER, _this.gl.NEAREST);
+	                _this.gl.texParameteri(_this.gl.TEXTURE_2D, _this.gl.TEXTURE_MAG_FILTER, _this.gl.NEAREST);
+	                /* npt textures */
+	                _this.gl.texParameteri(_this.gl.TEXTURE_2D, _this.gl.TEXTURE_WRAP_S, _this.gl.CLAMP_TO_EDGE);
+	                _this.gl.texParameteri(_this.gl.TEXTURE_2D, _this.gl.TEXTURE_WRAP_T, _this.gl.CLAMP_TO_EDGE);
+	            };
 	        }
 	        /**
 	         * Binds string as a shader to the gl context.
@@ -194,6 +219,8 @@
 	        value: function _getUniformLocations() {
 	            this.glPointers.uniforms.orthoMatrix = this.gl.getUniformLocation(this.glPointers.shaderProgram, "orthoMatrix");
 	            this.glPointers.uniforms.modelViewMatrix = this.gl.getUniformLocation(this.glPointers.shaderProgram, "modelViewMatrix");
+	            this.glPointers.uniforms.imageSampler = this.gl.getUniformLocation(this.glPointers.shaderProgram, "imageSampler");
+	            this.glPointers.uniforms.windowDimensions = this.gl.getUniformLocation(this.glPointers.shaderProgram, "windowDimensions");
 	        }
 
 	        /**
@@ -233,11 +260,11 @@
 	    }, {
 	        key: 'tick',
 	        value: function tick() {
-	            var _this = this;
+	            var _this2 = this;
 
 	            if (this.debug) {
 	                requestAnimationFrame(function () {
-	                    return _this.tick();
+	                    return _this2.tick();
 	                });
 	                this.render();
 	            }
@@ -257,9 +284,11 @@
 
 	            /* Setup model view matrix for next voroni point */
 	            var modelViewMatrix = _glMatrix.mat4.create();
-
 	            this.gl.uniformMatrix4fv(this.glPointers.uniforms.modelViewMatrix, false, modelViewMatrix);
+	            this.gl.uniform2fv(this.glPointers.uniforms.windowDimensions, new Float32Array([this.width, this.height]));
 
+	            /* Setup Texture Samplers */
+	            this.gl.uniform1i(this.glPointers.uniforms.imageSampler, 0);
 	            this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
 	        }
 	    }, {
