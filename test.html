@@ -9,6 +9,7 @@
         const voroni = new VoroniRenderer(470, 350, true);
         const canvas = voroni.getCanvasDOMNode();
         const body = document.getElementsByTagName("BODY")[0];
+        voroni.testData();
         voroni.tick();
         body.appendChild(canvas);
         

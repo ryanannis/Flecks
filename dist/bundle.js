@@ -69,7 +69,7 @@
 
 	var voronoiVertexShader = '\n    attribute vec3 vertexPosition;\n    uniform mat4 orthoMatrix;\n    uniform mat4 modelViewMatrix;\n    void main(void) {\n        gl_Position = orthoMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);\n    }\n';
 
-	var voronoiFragmentShader = '\n    precision highp float; //fuck gl es 2.0 and no texelfetch\n    \n    uniform sampler2D imageSampler;\n    uniform vec2 windowDimensions;\n    void main(void) { \n        vec2 coord = vec2(gl_FragCoord.x / windowDimensions.x, gl_FragCoord.y / windowDimensions.y);\n        vec4 myTexel = texture2D(imageSampler, coord);\n        gl_FragColor = myTexel  ;\n    }\n';
+	var voronoiFragmentShader = '\n    precision mediump float;\n    uniform vec3 vertexColor;\n    void main(void) { \n        gl_FragColor =  vec4(vertexColor, 1.0);\n    }\n';
 
 	/**
 	 * Utility for generating offscreen Voroni Diagrams
@@ -81,11 +81,13 @@
 	     * @param {Number} height
 	     */
 	    function VoroniRenderer(width, height, debug) {
+	        var _this = this;
+
 	        _classCallCheck(this, VoroniRenderer);
 
-	        this.width = width;
-	        this.height = height;
 	        this.coneResolution = 100;
+
+	        this.imageLoaded = false;
 	        this.debug = debug;
 
 	        /* Init offscreen canvas */
@@ -94,10 +96,15 @@
 	        this.canvas.height = height;
 
 	        this.gl = this.canvas.getContext('webgl');
-	        this.glPointers = { buffers: {}, textures: {} };
+	        this.textures = {};
+	        this.buffers = {};
 	        this.centroid = { attributes: {}, uniforms: {} };
+	        this.voronoi = { attributes: {}, uniforms: {} };
+	        this.frameBuffers = {};
 
-	        this._initGL();
+	        this._loadImage(function () {
+	            return _this._initGL();
+	        });
 	    }
 
 	    _createClass(VoroniRenderer, [{
@@ -111,11 +118,14 @@
 	            this._getBuffers();
 
 	            /* Bind data*/
-	            this._bindDataToUniforms();
 	            this._bindDataToBuffers();
+	            this._bindDataToUniforms();
 
 	            /* Setup Textures */
 	            this._initImageAsTexture();
+
+	            /* Setup Framebuffers*/
+	            this._initFrameBuffers();
 
 	            /* GL state toggles*/
 	            this.gl.clearColor(0.0, 0.0, 0.0, 1.0);
@@ -123,27 +133,56 @@
 	            this.gl.depthFunc(this.gl.LEQUAL);
 	        }
 	    }, {
-	        key: '_initImageAsTexture',
-	        value: function _initImageAsTexture() {
-	            var _this = this;
+	        key: '_loadImage',
+	        value: function _loadImage(callback) {
+	            var _this2 = this;
 
-	            var catImage = new Image();
-	            catImage.src = "static/cat.jpg";
-
-	            this.glPointers.textures.imageTexture = this.gl.createTexture();
-	            catImage.onload = function () {
-	                _this.gl.bindTexture(_this.gl.TEXTURE_2D, _this.glPointers.textures.imageTexture);
-	                _this.gl.pixelStorei(_this.gl.UNPACK_FLIP_Y_WEBGL, true);
-	                _this.gl.texImage2D(_this.gl.TEXTURE_2D, 0, _this.gl.RGBA, _this.gl.RGBA, _this.gl.UNSIGNED_BYTE, catImage);
-	                console.log(catImage);
-	                /* no texelfetch */
-	                _this.gl.texParameteri(_this.gl.TEXTURE_2D, _this.gl.TEXTURE_MIN_FILTER, _this.gl.NEAREST);
-	                _this.gl.texParameteri(_this.gl.TEXTURE_2D, _this.gl.TEXTURE_MAG_FILTER, _this.gl.NEAREST);
-	                /* npt textures */
-	                _this.gl.texParameteri(_this.gl.TEXTURE_2D, _this.gl.TEXTURE_WRAP_S, _this.gl.CLAMP_TO_EDGE);
-	                _this.gl.texParameteri(_this.gl.TEXTURE_2D, _this.gl.TEXTURE_WRAP_T, _this.gl.CLAMP_TO_EDGE);
+	            this.inputImage = new Image();
+	            this.inputImage.src = "static/cat.jpg";
+	            this.inputImage.onload = function () {
+	                _this2.imageLoaded = true;
+	                callback();
 	            };
 	        }
+	    }, {
+	        key: '_initFrameBuffers',
+	        value: function _initFrameBuffers() {
+	            this.gl.activeTexture(this.gl.TEXTURE1);
+	            this.textures.voronoiTexture = this.gl.createTexture();
+	            this.gl.bindTexture(this.gl.TEXTURE_2D, this.textures.voronoiTexture);
+	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
+	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
+	            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.inputImage.width, this.inputImage.height, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, null);
+
+	            this.frameBuffers.voronoi = this.gl.createFramebuffer();
+	            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.frameBuffers.voronoi);
+	            this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.textures.voronoiTexture, 0);
+
+	            /* Voronoi diagram needs a depthbuffer because of how the cone algorithm works */
+	            var renderbuffer = this.gl.createRenderbuffer();
+	            this.gl.bindRenderbuffer(this.gl.RENDERBUFFER, renderbuffer);
+	            this.gl.renderbufferStorage(this.gl.RENDERBUFFER, this.gl.DEPTH_COMPONENT16, this.inputImage.width, this.inputImage.height);
+	            this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.textures.voronoiTexture, 0);
+	            this.gl.framebufferRenderbuffer(this.gl.FRAMEBUFFER, this.gl.DEPTH_ATTACHMENT, this.gl.RENDERBUFFER, renderbuffer);
+	        }
+	    }, {
+	        key: '_initImageAsTexture',
+	        value: function _initImageAsTexture() {
+	            this.gl.activeTexture(this.gl.TEXTURE0);
+	            this.textures.imageTexture = this.gl.createTexture();
+	            this.gl.bindTexture(this.gl.TEXTURE_2D, this.textures.imageTexture);
+	            this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, true);
+	            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, this.inputImage);
+	            /* no texelfetch */
+	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
+	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
+	            /* npt textures */
+	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+	        }
+
 	        /**
 	         * Binds string as a shader to the gl context.
 	         * @param {String} str The string to be bound as a shader.
@@ -173,8 +212,8 @@
 	    }, {
 	        key: '_initShaders',
 	        value: function _initShaders() {
-	            _initCentroidProgram();
-	            _initVoronoiProgram();
+	            this._initCentroidProgram();
+	            this._initVoronoiProgram();
 	        }
 	    }, {
 	        key: '_initCentroidProgram',
@@ -193,8 +232,6 @@
 	                console.error("Could not init centroid shaders.");
 	                return null;
 	            }
-
-	            this.gl.useProgram(this.centroid.shaderProgram);
 	        }
 	    }, {
 	        key: '_initVoronoiProgram',
@@ -212,8 +249,6 @@
 	                console.error("Could not init voronoi shaders.");
 	                return null;
 	            }
-
-	            this.gl.useProgram(this.voronoi.shaderProgram);
 	        }
 
 	        /**
@@ -279,19 +314,19 @@
 	            this.centroid.uniforms.windowDimensions = this.gl.getUniformLocation(this.centroid.shaderProgram, "windowDimensions");
 
 	            this.voronoi.uniforms.orthoMatrix = this.gl.getUniformLocation(this.voronoi.shaderProgram, "orthoMatrix");
-	            this.voronoi.uniforms.modelViewMatrix = this.gl.getUniformLocation(this.glPointers.shaderProgram, "modelViewMatrix");
-	            this.voronoi.uniforms.vertexColor = this.gl.getUniformLocation(this.glPointers.shaderProgram, "vertexColor");
+	            this.voronoi.uniforms.modelViewMatrix = this.gl.getUniformLocation(this.voronoi.shaderProgram, "modelViewMatrix");
+	            this.voronoi.uniforms.vertexColor = this.gl.getUniformLocation(this.voronoi.shaderProgram, "vertexColor");
 	        }
 
 	        /**
-	         * Gets buffers and inserts them into this.glPointers.buffers
+	         * Gets buffers and inserts them into this.buffers
 	         */
 
 	    }, {
 	        key: '_getBuffers',
 	        value: function _getBuffers() {
-	            this.glPointers.buffers.quadPositionBuffer = this.gl.createBuffer();
-	            this.glPointers.buffers.conePositionBuffer = this.gl.createBuffer();
+	            this.buffers.quadPositionBuffer = this.gl.createBuffer();
+	            this.buffers.conePositionBuffer = this.gl.createBuffer();
 	        }
 
 	        /**
@@ -302,12 +337,12 @@
 	        key: '_bindDataToBuffers',
 	        value: function _bindDataToBuffers() {
 	            /* Bind Quad Data*/
-	            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.glPointers.buffers.quadPositionBuffer);
+	            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.quadPositionBuffer);
 	            var quadVertices = this._createQuad();
 	            this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array(quadVertices), this.gl.STATIC_DRAW);
 
 	            /* Bind Cone Data*/
-	            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.glPointers.buffers.conePositionBuffer);
+	            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.conePositionBuffer);
 	            var coneVertices = this._createCone(0, 0, this.coneResolution);
 	            this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array(coneVertices), this.gl.STATIC_DRAW);
 	        }
@@ -319,58 +354,123 @@
 	    }, {
 	        key: '_bindDataToUniforms',
 	        value: function _bindDataToUniforms() {
-	            var orthoMatrix = _glMatrix.mat4.create();
-	            _glMatrix.mat4.ortho(orthoMatrix, -1, 1, -1, 1, 0.001, 100);
-	            this.gl.uniformMatrix4fv(this.centroid.uniforms.orthoMatrix, false, orthoMatrix);
+	            this.gl.useProgram(this.centroid.shaderProgram);
+	            var centroidOrthoMatrix = _glMatrix.mat4.create();
+	            _glMatrix.mat4.ortho(centroidOrthoMatrix, -1, 1, -1, 1, 0.001, 100);
+	            this.gl.uniformMatrix4fv(this.centroid.uniforms.orthoMatrix, false, centroidOrthoMatrix);
+
+	            this.gl.useProgram(this.voronoi.shaderProgram);
+	            var voronoiOrthoMatrix = _glMatrix.mat4.create();
+	            _glMatrix.mat4.ortho(voronoiOrthoMatrix, -1, 1, -1, 1, 0.001, 100);
+	            this.gl.uniformMatrix4fv(this.voronoi.uniforms.orthoMatrix, false, voronoiOrthoMatrix);
 	        }
 	    }, {
 	        key: 'tick',
 	        value: function tick() {
-	            var _this2 = this;
+	            var _this3 = this;
 
 	            if (this.debug) {
 	                requestAnimationFrame(function () {
-	                    return _this2.tick();
+	                    return _this3.tick();
 	                });
 	                this.render();
 	            }
 	        }
-	    }, {
-	        key: 'render',
-	        value: function render() {
-	            if (this.debug) {
-	                this._bindDataToBuffers();
-	            }
-	            /* Voronoi Rendering Pass */
 
-	            /* First centroid calculation pass */
-	            this.gl.viewport(0, 0, this.width, this.height);
+	        /* Generates test data for voronoi */
+
+	    }, {
+	        key: 'testData',
+	        value: function testData() {
+	            this.points = [];
+	            for (var i = 0; i < 100; i++) {
+	                this.points.push({ x: Math.random() * 300, y: Math.random() * 300 });
+	            }
+	        }
+
+	        /**
+	         * Encodes an int as a float in range [0-16581374].
+	         * @param {Number} i Must be a whole number
+	         * @return {Float32Array} A 3 dimensional array representing i
+	        */
+
+	    }, {
+	        key: '_encodeIntToRGB',
+	        value: function _encodeIntToRGB(i) {
+	            var r = 1.0 / 255 * i;
+	            var b = 1.0 / 65025 * Math.floor(i / 255);
+	            var g = 1.0 / 16581375 * Math.floor(i / 65025);
+	            return new Float32Array([r, g, b]);
+	        }
+	        /**
+	         * Encodes the current points as a Voronoi diagram into the framebuffer.
+	        */
+
+	    }, {
+	        key: '_renderVoronoi',
+	        value: function _renderVoronoi() {
+	            var _this4 = this;
+
+	            this.gl.useProgram(this.voronoi.shaderProgram);
 	            this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
 
-	            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.glPointers.buffers.quadPositionBuffer);
+	            /* Render Voronoi to framebuffer */
+	            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.frameBuffers.voronoi);
+	            this.gl.viewport(0, 0, this.inputImage.width, this.inputImage.height);
+
+	            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.conePositionBuffer);
+	            this.gl.vertexAttribPointer(this.voronoi.attributes.vertexPosition, 3, this.gl.FLOAT, false, 0, 0);
+
+	            /* Draw a cone for each point*/
+	            this.points.forEach(function (point, idx) {
+	                /* Setup model view matrix for next voroni point */
+	                var modelViewMatrix = _glMatrix.mat4.create();
+	                _glMatrix.mat4.translate(modelViewMatrix, modelViewMatrix, [point.x / _this4.inputImage.width * 2 - 1, -(point.y / _this4.inputImage.height * 2 - 1), 0.0]);
+	                _this4.gl.uniformMatrix4fv(_this4.voronoi.uniforms.modelViewMatrix, false, modelViewMatrix);
+	                var indexEncodedAsRGB = _this4._encodeIntToRGB(idx);
+	                _this4.gl.uniform3fv(_this4.voronoi.uniforms.vertexColor, indexEncodedAsRGB);
+	                _this4.gl.drawArrays(_this4.gl.TRIANGLE_FAN, 0, _this4.coneResolution + 2);
+	            });
+	        }
+
+	        /* Renders a 1xcells textures containing the centroid of each cell of the Voronoi diagram
+	         * encoded in the colors of each pixel */
+
+	    }, {
+	        key: '_renderCentroid',
+	        value: function _renderCentroid() {
+	            this.gl.useProgram(this.centroid.shaderProgram);
+
+	            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+	            this.gl.viewport(0, 0, this.inputImage.width, this.inputImage.height);
+	            this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
+
+	            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.quadPositionBuffer);
 	            this.gl.vertexAttribPointer(this.centroid.attributes.vertexPosition, 3, this.gl.FLOAT, false, 0, 0);
 
 	            /* Setup model view matrix for next voroni point */
 	            var modelViewMatrix = _glMatrix.mat4.create();
 	            this.gl.uniformMatrix4fv(this.centroid.uniforms.modelViewMatrix, false, modelViewMatrix);
-	            this.gl.uniform2fv(this.centroid.uniforms.windowDimensions, new Float32Array([this.width, this.height]));
+	            this.gl.uniform2fv(this.centroid.uniforms.windowDimensions, new Float32Array([this.inputImage.width, this.inputImage.height]));
 
 	            /* Setup Texture Samplers */
-	            this.gl.uniform1i(this.centroid.uniforms.imageSampler, 0);
+	            this.gl.uniform1i(this.centroid.uniforms.imageSampler, 1);
 	            this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
+	        }
+	    }, {
+	        key: 'render',
+	        value: function render() {
+	            if (!this.imageLoaded) {
+	                return;
+	            }
+
+	            this._renderVoronoi();
+	            this._renderCentroid();
 	        }
 	    }, {
 	        key: 'getCanvasDOMNode',
 	        value: function getCanvasDOMNode() {
 	            return this.canvas;
-	        }
-	    }, {
-	        key: 'setResolution',
-	        value: function setResolution(width, height) {
-	            this.width = width;
-	            this.height = height;
-	            this.canvas.width = width;
-	            this.canvas.height = height;
 	        }
 	    }]);
 
