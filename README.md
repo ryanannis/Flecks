@@ -12,3 +12,7 @@ This is an artistic photo filter.  By inputting an image it will output a [stipp
 ### Usage
 
 ### Images
+
+### Attribution 
+
+Credits to Adrian Secord for the original paper and [Matt Keeter](www.mattkeeter.com) for his approach to generating centroidal Voronoi diagrams on GPU.
