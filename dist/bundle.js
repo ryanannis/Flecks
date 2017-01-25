@@ -63,9 +63,13 @@
 
 	function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
 
-	var voroniVertexShader = '\n    attribute vec3 vertexPosition;\n\n    uniform mat4 orthoMatrix;\n    uniform mat4 modelViewMatrix;\n\n    void main(void) {\n        gl_Position = orthoMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);\n    }\n';
+	var centroidVertexShader = '\n    attribute vec3 vertexPosition;\n\n    uniform mat4 orthoMatrix;\n    uniform mat4 modelViewMatrix;\n\n    void main(void) {\n        gl_Position = orthoMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);\n    }\n';
 
-	var voroniFragmentShader = '\n    precision highp float; //fuck gl es 2.0 and no texelfetch\n    \n    uniform sampler2D imageSampler;\n    uniform vec2 windowDimensions;\n\n    void main(void) { \n        vec2 coord = vec2(gl_FragCoord.x / windowDimensions.x, gl_FragCoord.y / windowDimensions.y);\n        vec4 myTexel = texture2D(imageSampler, coord);\n        gl_FragColor = myTexel  ;\n    }\n';
+	var centroidFragmentShader = '\n    precision highp float; //fuck gl es 2.0 and no texelfetch\n    \n    uniform sampler2D imageSampler;\n    uniform vec2 windowDimensions;\n\n    void main(void) { \n        vec2 coord = vec2(gl_FragCoord.x / windowDimensions.x, gl_FragCoord.y / windowDimensions.y);\n        vec4 myTexel = texture2D(imageSampler, coord);\n        gl_FragColor = myTexel  ;\n    }\n';
+
+	var voronoiVertexShader = '\n    attribute vec3 vertexPosition;\n    uniform mat4 orthoMatrix;\n    uniform mat4 modelViewMatrix;\n    void main(void) {\n        gl_Position = orthoMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);\n    }\n';
+
+	var voronoiFragmentShader = '\n    precision highp float; //fuck gl es 2.0 and no texelfetch\n    \n    uniform sampler2D imageSampler;\n    uniform vec2 windowDimensions;\n    void main(void) { \n        vec2 coord = vec2(gl_FragCoord.x / windowDimensions.x, gl_FragCoord.y / windowDimensions.y);\n        vec4 myTexel = texture2D(imageSampler, coord);\n        gl_FragColor = myTexel  ;\n    }\n';
 
 	/**
 	 * Utility for generating offscreen Voroni Diagrams
@@ -81,6 +85,7 @@
 
 	        this.width = width;
 	        this.height = height;
+	        this.coneResolution = 100;
 	        this.debug = debug;
 
 	        /* Init offscreen canvas */
@@ -89,7 +94,8 @@
 	        this.canvas.height = height;
 
 	        this.gl = this.canvas.getContext('webgl');
-	        this.glPointers = { attributes: {}, uniforms: {}, buffers: {}, textures: {} };
+	        this.glPointers = { buffers: {}, textures: {} };
+	        this.centroid = { attributes: {}, uniforms: {} };
 
 	        this._initGL();
 	    }
@@ -167,22 +173,47 @@
 	    }, {
 	        key: '_initShaders',
 	        value: function _initShaders() {
+	            _initCentroidProgram();
+	            _initVoronoiProgram();
+	        }
+	    }, {
+	        key: '_initCentroidProgram',
+	        value: function _initCentroidProgram() {
 	            /* Create shaders and shader program */
-	            var vertexShader = this._getShader(voroniVertexShader, this.gl.VERTEX_SHADER);
-	            var fragmentShader = this._getShader(voroniFragmentShader, this.gl.FRAGMENT_SHADER);
+	            var vertexShader = this._getShader(centroidVertexShader, this.gl.VERTEX_SHADER);
+	            var fragmentShader = this._getShader(centroidFragmentShader, this.gl.FRAGMENT_SHADER);
 
-	            this.glPointers.shaderProgram = this.gl.createProgram();
+	            this.centroid.shaderProgram = this.gl.createProgram();
 
-	            this.gl.attachShader(this.glPointers.shaderProgram, vertexShader);
-	            this.gl.attachShader(this.glPointers.shaderProgram, fragmentShader);
-	            this.gl.linkProgram(this.glPointers.shaderProgram);
+	            this.gl.attachShader(this.centroid.shaderProgram, vertexShader);
+	            this.gl.attachShader(this.centroid.shaderProgram, fragmentShader);
+	            this.gl.linkProgram(this.centroid.shaderProgram);
 
-	            if (!this.gl.getProgramParameter(this.glPointers.shaderProgram, this.gl.LINK_STATUS)) {
-	                console.error("Could not initialize shaders.");
+	            if (!this.gl.getProgramParameter(this.centroid.shaderProgram, this.gl.LINK_STATUS)) {
+	                console.error("Could not init centroid shaders.");
 	                return null;
 	            }
 
-	            this.gl.useProgram(this.glPointers.shaderProgram);
+	            this.gl.useProgram(this.centroid.shaderProgram);
+	        }
+	    }, {
+	        key: '_initVoronoiProgram',
+	        value: function _initVoronoiProgram() {
+	            var vertexShader = this._getShader(voronoiVertexShader, this.gl.VERTEX_SHADER);
+	            var fragmentShader = this._getShader(voronoiFragmentShader, this.gl.FRAGMENT_SHADER);
+
+	            this.voronoi.shaderProgram = this.gl.createProgram();
+
+	            this.gl.attachShader(this.voronoi.shaderProgram, vertexShader);
+	            this.gl.attachShader(this.voronoi.shaderProgram, fragmentShader);
+	            this.gl.linkProgram(this.voronoi.shaderProgram);
+
+	            if (!this.gl.getProgramParameter(this.voronoi.shaderProgram, this.gl.LINK_STATUS)) {
+	                console.error("Could not init voronoi shaders.");
+	                return null;
+	            }
+
+	            this.gl.useProgram(this.voronoi.shaderProgram);
 	        }
 
 	        /**
@@ -200,27 +231,56 @@
 	        }
 
 	        /**
-	         * Inserts attribute locations into this.glPointers.attributes
+	         * Creates cone with the given number of edges parametrically.
+	         * @param {Number} x x-coordinate of the center on the current coordinate system
+	         * @param {Number} y x-coordinate of the center on the current coordinate system
+	         * @param {Number} edges The number of edges for the base to have (not the total)
+	         * @return {???} 
+	        */
+
+	    }, {
+	        key: '_createCone',
+	        value: function _createCone(x, y, edges) {
+	            var pi = Math.PI;
+	            var vertices = new Array(edges * (3 + 2));
+	            vertices[0] = x;
+	            vertices[1] = y;
+	            vertices[2] = -3;
+	            for (var i = 1; i <= edges + 2; i++) {
+	                var ratio = i / edges;
+	                vertices[i * 3] = 3 * (x + Math.sin(2 * pi * ratio));
+	                vertices[i * 3 + 1] = 3 * (y + Math.cos(2 * pi * ratio));
+	                vertices[i * 3 + 2] = -5;
+	            }
+	            return vertices;
+	        }
+
+	        /**
+	         * Inserts attribute locations into this.centroid.attributes
 	         */
 
 	    }, {
 	        key: '_getAttributeLocations',
 	        value: function _getAttributeLocations() {
-	            this.glPointers.attributes.vertexPosition = this.gl.getAttribLocation(this.glPointers.shaderProgram, "vertexPosition");
-	            this.gl.enableVertexAttribArray(this.glPointers.attributes.vertexPosition);
+	            this.centroid.attributes.vertexPosition = this.gl.getAttribLocation(this.centroid.shaderProgram, "vertexPosition");
+	            this.gl.enableVertexAttribArray(this.centroid.attributes.vertexPosition);
 	        }
 
 	        /**
-	         * Inserts uniform locations into this.glPointers.attributes
+	         * Inserts uniform locations into this.centroid.attributes
 	         */
 
 	    }, {
 	        key: '_getUniformLocations',
 	        value: function _getUniformLocations() {
-	            this.glPointers.uniforms.orthoMatrix = this.gl.getUniformLocation(this.glPointers.shaderProgram, "orthoMatrix");
-	            this.glPointers.uniforms.modelViewMatrix = this.gl.getUniformLocation(this.glPointers.shaderProgram, "modelViewMatrix");
-	            this.glPointers.uniforms.imageSampler = this.gl.getUniformLocation(this.glPointers.shaderProgram, "imageSampler");
-	            this.glPointers.uniforms.windowDimensions = this.gl.getUniformLocation(this.glPointers.shaderProgram, "windowDimensions");
+	            this.centroid.uniforms.orthoMatrix = this.gl.getUniformLocation(this.centroid.shaderProgram, "orthoMatrix");
+	            this.centroid.uniforms.modelViewMatrix = this.gl.getUniformLocation(this.centroid.shaderProgram, "modelViewMatrix");
+	            this.centroid.uniforms.imageSampler = this.gl.getUniformLocation(this.centroid.shaderProgram, "imageSampler");
+	            this.centroid.uniforms.windowDimensions = this.gl.getUniformLocation(this.centroid.shaderProgram, "windowDimensions");
+
+	            this.voronoi.uniforms.orthoMatrix = this.gl.getUniformLocation(this.voronoi.shaderProgram, "orthoMatrix");
+	            this.voronoi.uniforms.modelViewMatrix = this.gl.getUniformLocation(this.glPointers.shaderProgram, "modelViewMatrix");
+	            this.voronoi.uniforms.vertexColor = this.gl.getUniformLocation(this.glPointers.shaderProgram, "vertexColor");
 	        }
 
 	        /**
@@ -230,7 +290,8 @@
 	    }, {
 	        key: '_getBuffers',
 	        value: function _getBuffers() {
-	            this.glPointers.buffers.vertexPositionBuffer = this.gl.createBuffer();
+	            this.glPointers.buffers.quadPositionBuffer = this.gl.createBuffer();
+	            this.glPointers.buffers.conePositionBuffer = this.gl.createBuffer();
 	        }
 
 	        /**
@@ -240,10 +301,15 @@
 	    }, {
 	        key: '_bindDataToBuffers',
 	        value: function _bindDataToBuffers() {
-	            /* Bind Vertex Data*/
-	            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.glPointers.buffers.vertexPositionBuffer);
+	            /* Bind Quad Data*/
+	            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.glPointers.buffers.quadPositionBuffer);
 	            var quadVertices = this._createQuad();
 	            this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array(quadVertices), this.gl.STATIC_DRAW);
+
+	            /* Bind Cone Data*/
+	            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.glPointers.buffers.conePositionBuffer);
+	            var coneVertices = this._createCone(0, 0, this.coneResolution);
+	            this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array(coneVertices), this.gl.STATIC_DRAW);
 	        }
 
 	        /**
@@ -255,7 +321,7 @@
 	        value: function _bindDataToUniforms() {
 	            var orthoMatrix = _glMatrix.mat4.create();
 	            _glMatrix.mat4.ortho(orthoMatrix, -1, 1, -1, 1, 0.001, 100);
-	            this.gl.uniformMatrix4fv(this.glPointers.uniforms.orthoMatrix, false, orthoMatrix);
+	            this.gl.uniformMatrix4fv(this.centroid.uniforms.orthoMatrix, false, orthoMatrix);
 	        }
 	    }, {
 	        key: 'tick',
@@ -275,20 +341,22 @@
 	            if (this.debug) {
 	                this._bindDataToBuffers();
 	            }
+	            /* Voronoi Rendering Pass */
 
+	            /* First centroid calculation pass */
 	            this.gl.viewport(0, 0, this.width, this.height);
 	            this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
 
-	            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.glPointers.buffers.vertexPositionBuffer);
-	            this.gl.vertexAttribPointer(this.glPointers.attributes.vertexPosition, 3, this.gl.FLOAT, false, 0, 0);
+	            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.glPointers.buffers.quadPositionBuffer);
+	            this.gl.vertexAttribPointer(this.centroid.attributes.vertexPosition, 3, this.gl.FLOAT, false, 0, 0);
 
 	            /* Setup model view matrix for next voroni point */
 	            var modelViewMatrix = _glMatrix.mat4.create();
-	            this.gl.uniformMatrix4fv(this.glPointers.uniforms.modelViewMatrix, false, modelViewMatrix);
-	            this.gl.uniform2fv(this.glPointers.uniforms.windowDimensions, new Float32Array([this.width, this.height]));
+	            this.gl.uniformMatrix4fv(this.centroid.uniforms.modelViewMatrix, false, modelViewMatrix);
+	            this.gl.uniform2fv(this.centroid.uniforms.windowDimensions, new Float32Array([this.width, this.height]));
 
 	            /* Setup Texture Samplers */
-	            this.gl.uniform1i(this.glPointers.uniforms.imageSampler, 0);
+	            this.gl.uniform1i(this.centroid.uniforms.imageSampler, 0);
 	            this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
 	        }
 	    }, {
