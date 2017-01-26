@@ -13,7 +13,7 @@ const centroidVertexShader = `
 `;
 
 const centroidFragmentShader = `
-    precision highp float; //fuck gl es 2.0 and no texelfetch
+    precision highp float; //fuck gl es 2.0
     
     uniform sampler2D imageSampler;
     uniform sampler2D voronoiSampler;
@@ -38,8 +38,8 @@ const centroidFragmentShader = `
             if(myIndex == i){
                 vec4 imageTexel = texture2D(imageSampler, coord);
 
-                // Using Photometric/digital ITU BT.709 standard for luminesence
-                float weight = 1.0 - 0.99 * (0.2126 * imageTexel.x + 0.7152 * imageTexel.y + 0.0722 * imageTexel.z);
+                float weight = 1.0 - imageTexel.x;
+                weight = 1.0 - 0.99 * weight;
                 
                 vec2 integerCoord = vec2(x, gl_FragCoord.y);
 
@@ -53,8 +53,20 @@ const centroidFragmentShader = `
         color.y = color.y / windowDimensions.y;
         
         gl_FragColor = vec4(color.x, color.y, color.z, 1.0);
+
+         //gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+
+        //vec2 test = vec2(gl_FragCoord.x / windowDimensions.x, gl_FragCoord.y / windowDimensions.y);
+        //vec4 myTexel = texture2D(voronoiSampler, test);
+        //gl_FragColor = myTexel  ;
     }
 `;
+
+const outputFragmentShader = `
+    void main(void) {
+        gl_FragColor =  vec4(1.0, 0.0, 0.0, 0.0);
+    }
+`
 
 const voronoiVertexShader  = `
     attribute vec3 vertexPosition;
@@ -78,12 +90,13 @@ const voronoiFragmentShader = `
  */
 class VoroniRenderer{
     /**
-     * @param {Number} width
-     * @param {Number} height
+     * @param {Number} Samples
+     * @param {Boolean} debug
      */
-    constructor(debug){
+    constructor(samples, debug){
         this.imageLoaded = false;
         this.debug = debug;
+        this.samples = samples;
         this._init();
     }
 
@@ -99,6 +112,7 @@ class VoroniRenderer{
         this.buffers = {};
         this.centroid = {attributes: {}, uniforms: {}};
         this.voronoi = {attributes: {}, uniforms: {}};
+        this.output = {attributes: {}, uniforms: {}};
         this.frameBuffers = {};
         this._loadImage(() => this._initGL());
     }
@@ -156,6 +170,20 @@ class VoroniRenderer{
         this.gl.renderbufferStorage(this.gl.RENDERBUFFER, this.gl.DEPTH_COMPONENT16, this.inputImage.width, this.inputImage.height);
         this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.textures.voronoiTexture, 0);
         this.gl.framebufferRenderbuffer(this.gl.FRAMEBUFFER, this.gl.DEPTH_ATTACHMENT, this.gl.RENDERBUFFER, renderbuffer);
+
+        
+        this.gl.activeTexture(this.gl.TEXTURE2);
+        this.textures.intermediateTexture = this.gl.createTexture();
+        this.gl.bindTexture(this.gl.TEXTURE_2D, this.textures.intermediateTexture);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
+        this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
+        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.samples, this.inputImage.height, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, null);
+        
+        this.frameBuffers.intermediate = this.gl.createFramebuffer();
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.frameBuffers.intermediate);
+        this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.textures.intermediateTexture, 0);
     }
 
     _initImageAsTexture(){
@@ -204,6 +232,7 @@ class VoroniRenderer{
     _initShaders(){
         this._initCentroidProgram();
         this._initVoronoiProgram();
+        this._initOutputProgram();
     }
 
     _initCentroidProgram(){
@@ -218,6 +247,23 @@ class VoroniRenderer{
         this.gl.linkProgram(this.centroid.shaderProgram);
 
         if(!this.gl.getProgramParameter(this.centroid.shaderProgram, this.gl.LINK_STATUS)){
+          console.error("Could not init centroid shaders.");
+          return null;
+        }
+    }
+
+    _initOutputProgram(){
+        /* Create shaders and shader program */
+        const vertexShader = this._getShader(centroidVertexShader, this.gl.VERTEX_SHADER);
+        const fragmentShader = this._getShader(outputFragmentShader, this.gl.FRAGMENT_SHADER);
+
+        this.output.shaderProgram = this.gl.createProgram();
+        
+        this.gl.attachShader(this.output.shaderProgram, vertexShader);
+        this.gl.attachShader(this.output.shaderProgram, fragmentShader);
+        this.gl.linkProgram(this.output.shaderProgram);
+
+        if(!this.gl.getProgramParameter(this.output.shaderProgram, this.gl.LINK_STATUS)){
           console.error("Could not init centroid shaders.");
           return null;
         }
@@ -281,8 +327,14 @@ class VoroniRenderer{
      * Inserts attribute locations into this.centroid.attributes
      */
     _getAttributeLocations(){
+        this.voronoi.attributes.vertexPosition = this.gl.getAttribLocation(this.voronoi.shaderProgram, "vertexPosition");
+        this.gl.enableVertexAttribArray(this.voronoi.attributes.vertexPosition);
+
         this.centroid.attributes.vertexPosition = this.gl.getAttribLocation(this.centroid.shaderProgram, "vertexPosition");
         this.gl.enableVertexAttribArray(this.centroid.attributes.vertexPosition);
+
+        this.output.attributes.vertexPosition = this.gl.getAttribLocation(this.output.shaderProgram, "vertexPosition");
+        this.gl.enableVertexAttribArray(this.output.attributes.vertexPosition);
     }
 
     /**
@@ -294,6 +346,11 @@ class VoroniRenderer{
          this.centroid.uniforms.imageSampler = this.gl.getUniformLocation(this.centroid.shaderProgram, "imageSampler");
          this.centroid.uniforms.voronoiSampler = this.gl.getUniformLocation(this.centroid.shaderProgram, "voronoiSampler");
          this.centroid.uniforms.windowDimensions = this.gl.getUniformLocation(this.centroid.shaderProgram, "windowDimensions");
+
+         this.output.uniforms.orthoMatrix = this.gl.getUniformLocation(this.output.shaderProgram, "orthoMatrix");
+         this.output.uniforms.modelViewMatrix = this.gl.getUniformLocation(this.output.shaderProgram, "modelViewMatrix");
+         this.output.uniforms.intermediateSampler = this.gl.getUniformLocation(this.output.shaderProgram, "intermediateSampler");
+         this.output.uniforms.windowDimensions = this.gl.getUniformLocation(this.output.shaderProgram, "windowDimensions");
 
          this.voronoi.uniforms.orthoMatrix = this.gl.getUniformLocation(this.voronoi.shaderProgram, "orthoMatrix");
          this.voronoi.uniforms.modelViewMatrix = this.gl.getUniformLocation(this.voronoi.shaderProgram, "modelViewMatrix");
@@ -327,7 +384,9 @@ class VoroniRenderer{
      * Inserts needed matrices into uniforms
      */
     _bindDataToUniforms(){
+        /* Centroid Program */
         this.gl.useProgram(this.centroid.shaderProgram);
+
         const centroidOrthoMatrix = mat4.create();
         mat4.ortho(centroidOrthoMatrix, -1, 1, -1, 1, 0.001, 100);  
         this.gl.uniformMatrix4fv(
@@ -336,6 +395,18 @@ class VoroniRenderer{
             centroidOrthoMatrix
         );
 
+        /* Output program */
+        this.gl.useProgram(this.output.shaderProgram);
+        const outputOrthoMatrix = mat4.create();
+        mat4.ortho(outputOrthoMatrix, -1, 1, -1, 1, 0.001, 100);  
+        this.gl.uniformMatrix4fv(
+            this.output.uniforms.orthoMatrix,
+            false,
+            outputOrthoMatrix
+        );
+
+
+        /* Voronoi Generator */
         this.gl.useProgram(this.voronoi.shaderProgram);
         const voronoiOrthoMatrix = mat4.create();
         mat4.ortho(voronoiOrthoMatrix, -1, 1, -1, 1, 0.001, 100);  
@@ -346,6 +417,7 @@ class VoroniRenderer{
         );
         
     }
+
     tick(){
         if(this.debug){
             requestAnimationFrame(() => this.tick());
@@ -411,7 +483,7 @@ class VoroniRenderer{
         this.gl.useProgram(this.centroid.shaderProgram);
 
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
-        this.gl.viewport(0, 0, this.points.length, this.inputImage.height);
+        this.gl.viewport(0, 0, this.inputImage.width, this.inputImage.height);
         this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
         
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.quadPositionBuffer);
@@ -430,8 +502,36 @@ class VoroniRenderer{
         );
 
         /* Setup Texture Samplers */
-        this.gl.uniform1i(this.centroid.uniforms.imageSampler, 1);
-        this.gl.uniform1i(this.centroid.uniforms.voronoiSampler, 0);
+        this.gl.uniform1i(this.centroid.uniforms.imageSampler, 0);
+        this.gl.uniform1i(this.centroid.uniforms.voronoiSampler, 1);
+        this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
+    }
+
+    /* Renders the 1xsamples output of the centroids to a canvas */
+    _renderOutput(){
+        this.gl.useProgram(this.output.shaderProgram);
+
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+        this.gl.viewport(0, 0, this.inputImage.width, 1);
+        this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
+        
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.quadPositionBuffer);
+        this.gl.vertexAttribPointer(this.output.attributes.vertexPosition, 3, this.gl.FLOAT, false, 0, 0);
+
+        /* Setup model view matrix for next voroni point */
+        const modelViewMatrix = mat4.create();
+        this.gl.uniformMatrix4fv(
+            this.output.uniforms.modelViewMatrix,
+            false,
+            modelViewMatrix
+        );
+        this.gl.uniform2fv(
+            this.output.uniforms.windowDimensions,
+            new Float32Array([this.inputImage.width, this.inputImage.height])
+        );
+
+        /* Setup Texture Samplers */
+        this.gl.uniform1i(this.output.uniforms.intermediateSampler, 3);
         this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
     }
     
