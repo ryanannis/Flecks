@@ -11,12 +11,10 @@
     <script src="dist/bundle.js"></script>
     <img src="static/cat.jpg">
     <script>
-        const voroni = new VoroniRenderer(8096, 100, true);
+        const voroni = new VoroniRenderer(256, 10, true);
         const canvas = voroni.getCanvasDOMNode();
-        const debugCanvas = voroni._getDebugCanvasDOMNode();
         const body = document.getElementsByTagName("BODY")[0];
         body.appendChild(canvas);
-        //body.appendChild(debugCanvas);
         
     </script>
 </body>

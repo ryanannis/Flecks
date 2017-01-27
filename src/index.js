@@ -1,5 +1,6 @@
 import { mat4 } from 'gl-matrix';
 
+
 /* Credits to Matt Keeter for this approach https://www.mattkeeter.com/projects/swingline/ */
 const centroidVertexShader = `
     attribute vec3 vertexPosition;
@@ -119,6 +120,23 @@ const voronoiFragmentShader = `
     }
 `;
 
+const finalOutputFragmentShader = `
+    precision mediump float;
+    uniform vec3 vertexColor;
+    void main(void) { 
+        gl_FragColor =  vec4(vertexColor, 1.0);
+    }
+`;
+
+const finalOutputVertexShader  = `
+    attribute vec3 vertexPosition;
+    uniform mat4 orthoMatrix;
+    uniform mat4 modelViewMatrix;
+    void main(void) {
+        gl_Position = orthoMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);
+    }
+`;
+
 /**
  * Utility for generating offscreen Voroni Diagrams
  */
@@ -148,14 +166,13 @@ class VoroniRenderer{
         this.canvas.width = 0;
         this.canvas.height = 1;
 
-        this.exportCanvas = document.createElement("canvas"); 
-
         this.gl = this.canvas.getContext('webgl', {preserveDrawingBuffer: true});
         this.textures = {};
         this.buffers = {};
         this.centroid = {attributes: {}, uniforms: {}};
         this.voronoi = {attributes: {}, uniforms: {}};
         this.output = {attributes: {}, uniforms: {}};
+        this.finalOutput = {attributes: {}, uniforms: {}};
         this.frameBuffers = {};
         this._loadImage(() => this._onReady());
     }
@@ -166,11 +183,8 @@ class VoroniRenderer{
         }
     }
     _initGL(){
-        this.canvas.width = this.samples;
+        this.canvas.width = this.inputImage.width;
         this.canvas.height = this.inputImage.height;
-
-        this.exportCanvas.width = this.inputImage.width;
-        this.exportCanvas.height = this.inputImage.height ;
 
         this._initShaders();
 
@@ -286,6 +300,7 @@ class VoroniRenderer{
         this._initCentroidProgram();
         this._initVoronoiProgram();
         this._initOutputProgram();
+        this._initFinalOutputProgram();
     }
 
     _initCentroidProgram(){
@@ -333,6 +348,22 @@ class VoroniRenderer{
         this.gl.linkProgram(this.voronoi.shaderProgram);
 
         if(!this.gl.getProgramParameter(this.voronoi.shaderProgram, this.gl.LINK_STATUS)){
+          console.error("Could not init voronoi shaders.");
+          return null;
+        }
+    }
+
+    _initFinalOutputProgram(){
+        const vertexShader = this._getShader(finalOutputVertexShader, this.gl.VERTEX_SHADER);
+        const fragmentShader = this._getShader(finalOutputFragmentShader, this.gl.FRAGMENT_SHADER);
+
+        this.finalOutput.shaderProgram = this.gl.createProgram();
+        
+        this.gl.attachShader(this.finalOutput.shaderProgram, vertexShader);
+        this.gl.attachShader(this.finalOutput.shaderProgram, fragmentShader);
+        this.gl.linkProgram(this.finalOutput.shaderProgram);
+
+        if(!this.gl.getProgramParameter(this.finalOutput.shaderProgram, this.gl.LINK_STATUS)){
           console.error("Could not init voronoi shaders.");
           return null;
         }
@@ -388,6 +419,9 @@ class VoroniRenderer{
 
         this.output.attributes.vertexPosition = this.gl.getAttribLocation(this.output.shaderProgram, "vertexPosition");
         this.gl.enableVertexAttribArray(this.output.attributes.vertexPosition);
+
+        this.finalOutput.attributes.vertexPosition = this.gl.getAttribLocation(this.finalOutput.shaderProgram, "vertexPosition");
+        this.gl.enableVertexAttribArray(this.finalOutput.attributes.vertexPosition);
     }
 
     /**
@@ -408,6 +442,10 @@ class VoroniRenderer{
          this.voronoi.uniforms.orthoMatrix = this.gl.getUniformLocation(this.voronoi.shaderProgram, "orthoMatrix");
          this.voronoi.uniforms.modelViewMatrix = this.gl.getUniformLocation(this.voronoi.shaderProgram, "modelViewMatrix");
          this.voronoi.uniforms.vertexColor = this.gl.getUniformLocation(this.voronoi.shaderProgram, "vertexColor");
+
+         this.finalOutput.uniforms.orthoMatrix = this.gl.getUniformLocation(this.finalOutput.shaderProgram, "orthoMatrix");
+         this.finalOutput.uniforms.modelViewMatrix = this.gl.getUniformLocation(this.finalOutput.shaderProgram, "modelViewMatrix");
+         this.finalOutput.uniforms.vertexColor = this.gl.getUniformLocation(this.finalOutput.shaderProgram, "vertexColor");
     }
 
     /**
@@ -468,18 +506,28 @@ class VoroniRenderer{
             false,
             voronoiOrthoMatrix
         );
+
+        /* Voronoi Generator */
+        this.gl.useProgram(this.finalOutput.shaderProgram);
+        const finalOutputOrthoMatrix = mat4.create();
+        mat4.ortho(finalOutputOrthoMatrix, 0, this.inputImage.width,  this.inputImage.height, 0, 0.001, 100);  
+        this.gl.uniformMatrix4fv(
+            this.finalOutput.uniforms.orthoMatrix,
+            false,
+            finalOutputOrthoMatrix
+        );
         
     }
 
     tick(){
         this.iterations--;
         if(this.iterations > 0){
+            console.log(this.iterations);
             requestAnimationFrame(() => this.tick());
             this.render();
             this._updatePointsFromCurrentFramebuffer();
             this._drawPointsOntoCanvas();
-            this._renderVoronoi(null);
-            console.log(this.iterations);
+            //this._renderVoronoi(null);
         }
         else{
             this._drawPointsOntoCanvas();
@@ -487,15 +535,7 @@ class VoroniRenderer{
     }
 
     _drawPointsOntoCanvas(){
-        const ctx = this.exportCanvas.getContext('2d');
-        ctx.clearRect(0, 0, this.exportCanvas.width, this.exportCanvas.height);
-
-        for(let i = 0; i < this.samples; i++){
-            const x = this.points[i].x;
-            const y = this.points[i].y;
-            const weight = this.points[i].weight;
-            ctx.fillRect(x - weight /100, y - weight /100,1 + weight /100,1 + weight /100);
-        }
+        this._renderFinalOutput();
     }
 
     _updatePointsFromCurrentFramebuffer(){
@@ -550,35 +590,47 @@ class VoroniRenderer{
         return new Float32Array([r / 255.0, g / 255.0 , b /255.0]);
     }
 
-    /* Renders a 1xcells textures containing the centroid of each cell of the Voronoi diagram
-     * encoded in the colors of each pixel */
+    /* Renders the final dots */
     _renderFinalOutput(){
-        this.gl.useProgram(this.centroid.shaderProgram);
-
-        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.frameBuffers.intermediate);
-        this.gl.viewport(0, 0, this.samples, this.inputImage.height);
+        this.gl.clearColor(1.0, 1.0, 1.0, 1.0);
+        this.gl.useProgram(this.finalOutput.shaderProgram);
         this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
-        
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.quadPositionBuffer);
-        this.gl.vertexAttribPointer(this.centroid.attributes.vertexPosition, 3, this.gl.FLOAT, false, 0, 0);
 
-        /* Setup model view matrix for next voroni point */
-        const modelViewMatrix = mat4.create();
-        this.gl.uniformMatrix4fv(
-            this.centroid.uniforms.modelViewMatrix,
-            false,
-            modelViewMatrix
-        );
-        this.gl.uniform2fv(
-            this.centroid.uniforms.windowDimensions,
-            new Float32Array([this.inputImage.width, this.inputImage.height])
-        );
+        /* Render Voronoi to framebuffer */
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+        this.gl.viewport(0, 0, this.inputImage.width, this.inputImage.height);
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.conePositionBuffer);
+        this.gl.vertexAttribPointer(this.finalOutput.attributes.vertexPosition, 3, this.gl.FLOAT, false, 0, 0);
 
-        /* Setup Texture Samplers */
-        this.gl.uniform1i(this.centroid.uniforms.imageSampler, 0);
-        this.gl.uniform1i(this.centroid.uniforms.voronoiSampler, 1);
-        this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
+        /* Draw a cone for each point*/
+        this.points.forEach((point, idx) => {
+            /* Setup model view matrix for next voroni point */
+            const modelViewMatrix = mat4.create();
+            mat4.translate(
+                modelViewMatrix,
+                modelViewMatrix,
+                [point.x, point.y, 0.0]
+            );
+
+            const scalingFactor = 0.1 + point.weight / 250;
+
+            mat4.scale(
+                modelViewMatrix,
+                modelViewMatrix,
+                [scalingFactor, scalingFactor, scalingFactor]
+            );
+            this.gl.uniformMatrix4fv(
+                this.finalOutput.uniforms.modelViewMatrix,
+                false,
+                modelViewMatrix
+            );
+            this.gl.uniform3fv(this.finalOutput.uniforms.vertexColor, new Float32Array([0.0, 0.0, 0.0]));
+            this.gl.drawArrays(this.gl.TRIANGLE_FAN, 0, this.coneResolution+2);
+        });
+
+        this.gl.clearColor(0.0, 0.0, 0.0, 1.0);
     }
+
     
     /**
      * Encodes the current points as a Voronoi diagram into the framebuffer.
@@ -680,9 +732,6 @@ class VoroniRenderer{
         this._renderOutput();
     }
     getCanvasDOMNode(){
-        return this.exportCanvas;
-    }
-    _getDebugCanvasDOMNode(){
         return this.canvas;
     }
 }
