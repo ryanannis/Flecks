@@ -1,4 +1,4 @@
-# Flecks
+![Flecks Logo](https://cloud.githubusercontent.com/assets/4493022/22388211/42902c4a-e494-11e6-864a-dcdc03932f7a.png)
 
 ## Warning:  This is a Work in Progress.  It is currently functional but has many limitations that are being ironed out currently.
 
