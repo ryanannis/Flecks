@@ -92,16 +92,16 @@ const outputFragmentShader = `
         ix /= weight;
         iy /= weight;
         weight /= count;
-        
+
+        /* We use the third vector to bitpack an additional 4 bits per coordinate to get resolutions upto 4096*4096*/
         gl_FragColor = vec4(
-            ix / 255.0,
-            iy / 255.0,
-            0,
+            mod(ix, 256.0) / 255.0,
+            mod(iy, 256.0) / 255.0,
+            (floor(ix/256.0) + floor(iy/256.0) * 16.0)/255.0,
             weight
         );
     }
 `
-
 const voronoiVertexShader  = `
     attribute vec3 vertexPosition;
     uniform mat4 orthoMatrix;
@@ -478,8 +478,8 @@ class VoroniRenderer{
             this.render();
             this._updatePointsFromCurrentFramebuffer();
             this._drawPointsOntoCanvas();
-            console.log(this.iterations);
             this._renderVoronoi(null);
+            console.log(this.iterations);
         }
         else{
             this._drawPointsOntoCanvas();
@@ -503,8 +503,10 @@ class VoroniRenderer{
         const imgd = this.gl.readPixels(0, 0, this.samples, 1, this.gl.RGBA, this.gl.UNSIGNED_BYTE, pixels);
         for(let i = 0; i < this.samples; i++){
             const point = this.points[i];
-            const newX = pixels[i*4];
-            const newY = pixels[i*4+1];
+            const extraBits = pixels[i*4+2];
+            const newX = (pixels[i*4] + (extraBits % 16 )* 256) ;
+            const newY = (pixels[i*4+1] + (extraBits >> 4)* 256) ;
+            //console.log(extraBits);
             const weight = pixels[i*4+3];
             this.points[i] = {x: newX, y: newY, weight: weight };
         }

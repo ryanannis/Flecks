@@ -68,8 +68,7 @@
 
 	var centroidFragmentShader = "\n    precision highp float;\n    \n    uniform sampler2D imageSampler;\n    uniform sampler2D voronoiSampler;\n    uniform vec2 windowDimensions;\n\n    const float max_samples = 50000.0;\n\n      void main(void) { \n        // Index of Voronoi cell being searched for\n        int myIndex = int(gl_FragCoord.x);\n        vec4 color = vec4(0.0, 0.0, 0.0, 0.0);\n\n        for(float x = 0.0; x < max_samples ; x++){\n            if(x > windowDimensions.x){\n                break;\n            }\n            vec2 coord = vec2(x / windowDimensions.x, gl_FragCoord.y / windowDimensions.y);\n            vec4 voronoiTexel = texture2D(voronoiSampler, coord);\n\n            int i = int(255.0 * (voronoiTexel.x + (voronoiTexel.y * 256.0) + (voronoiTexel.z * 65536.0)));\n\n            if(myIndex == i){\n                vec4 imageTexel = texture2D(imageSampler, coord);\n\n                float weight = 1.0 - imageTexel.x;\n                weight = 0.01 + weight * 0.99;\n\n                color.x += (x + 0.5) * weight;\n                color.y += gl_FragCoord.y * weight;\n                color.z += weight;\n                color.w += 1.0;\n            }\n        }\n\n        gl_FragColor = vec4(\n            color.x, \n            color.y, \n            color.z,\n            color.w\n        );\n    }\n";
 
-	var outputFragmentShader = "\n    precision highp float;\n    uniform sampler2D intermediateSampler;\n    uniform vec2 windowDimensions;\n\n    const float max_height = 100000.0;\n\n    float modI(float a,float b) {\n        float m=a-floor((a+0.5)/b)*b;\n        return floor(m+0.5);\n    }\n\n    void main(void) {\n        float weight = 0.0;\n        float count = 0.0;\n\n        /* piecewise integral */\n        float ix = 0.0;\n        float iy = 0.0;\n\n        for(float y = 1.0; y < max_height; y++){\n            if(y > windowDimensions.y){\n                break;\n            }\n\n            vec2 texCoord = vec2(gl_FragCoord.x/windowDimensions.x, y/windowDimensions.y);\n            vec4 imageTexel = texture2D(intermediateSampler, texCoord );\n            ix += imageTexel.x;\n            iy += imageTexel.y;\n            weight += imageTexel.z; \n            count += imageTexel.w;\n        }\n        ix /= weight;\n        iy /= weight;\n        weight /= count;\n        \n        gl_FragColor = vec4(\n            ix / 255.0,\n            iy / 255.0,\n            0,\n            weight\n        );\n    }\n";
-
+	var outputFragmentShader = "\n    precision highp float;\n    uniform sampler2D intermediateSampler;\n    uniform vec2 windowDimensions;\n\n    const float max_height = 100000.0;\n\n    float modI(float a,float b) {\n        float m=a-floor((a+0.5)/b)*b;\n        return floor(m+0.5);\n    }\n\n    void main(void) {\n        float weight = 0.0;\n        float count = 0.0;\n\n        /* piecewise integral */\n        float ix = 0.0;\n        float iy = 0.0;\n\n        for(float y = 1.0; y < max_height; y++){\n            if(y > windowDimensions.y){\n                break;\n            }\n\n            vec2 texCoord = vec2(gl_FragCoord.x/windowDimensions.x, y/windowDimensions.y);\n            vec4 imageTexel = texture2D(intermediateSampler, texCoord );\n            ix += imageTexel.x;\n            iy += imageTexel.y;\n            weight += imageTexel.z; \n            count += imageTexel.w;\n        }\n        ix /= weight;\n        iy /= weight;\n        weight /= count;\n\n        /* We use the third vector to bitpack an additional 4 bits per coordinate to get resolutions upto 4096*4096*/\n        gl_FragColor = vec4(\n            mod(ix, 256.0) / 255.0,\n            mod(iy, 256.0) / 255.0,\n            (floor(ix/256.0) + floor(iy/256.0) * 16.0)/255.0,\n            weight\n        );\n    }\n";
 	var voronoiVertexShader = "\n    attribute vec3 vertexPosition;\n    uniform mat4 orthoMatrix;\n    uniform mat4 modelViewMatrix;\n    void main(void) {\n        gl_Position = orthoMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);\n    }\n";
 
 	var voronoiFragmentShader = "\n    precision mediump float;\n    uniform vec3 vertexColor;\n    void main(void) { \n        gl_FragColor =  vec4(vertexColor, 1.0);\n    }\n";
@@ -462,8 +461,8 @@
 	                this.render();
 	                this._updatePointsFromCurrentFramebuffer();
 	                this._drawPointsOntoCanvas();
-	                console.log(this.iterations);
 	                this._renderVoronoi(null);
+	                console.log(this.iterations);
 	            } else {
 	                this._drawPointsOntoCanvas();
 	            }
@@ -488,8 +487,10 @@
 	            var imgd = this.gl.readPixels(0, 0, this.samples, 1, this.gl.RGBA, this.gl.UNSIGNED_BYTE, pixels);
 	            for (var i = 0; i < this.samples; i++) {
 	                var point = this.points[i];
-	                var newX = pixels[i * 4];
-	                var newY = pixels[i * 4 + 1];
+	                var extraBits = pixels[i * 4 + 2];
+	                var newX = pixels[i * 4] + extraBits % 16 * 256;
+	                var newY = pixels[i * 4 + 1] + (extraBits >> 4) * 256;
+	                //console.log(extraBits);
 	                var weight = pixels[i * 4 + 3];
 	                this.points[i] = { x: newX, y: newY, weight: weight };
 	            }
