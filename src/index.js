@@ -183,7 +183,7 @@ class VoroniRenderer{
         }
     }
     _initGL(){
-        this.canvas.width = this.inputImage.width;
+        this.canvas.width = this.samples;
         this.canvas.height = this.inputImage.height;
 
         this._initShaders();
@@ -522,11 +522,10 @@ class VoroniRenderer{
     tick(){
         this.iterations--;
         if(this.iterations > 0){
-            console.log(this.iterations);
+            console.log(`${this.iterations} iterations left`);
             requestAnimationFrame(() => this.tick());
             this.render();
             this._updatePointsFromCurrentFramebuffer();
-            this._drawPointsOntoCanvas();
             //this._renderVoronoi(null);
         }
         else{
@@ -602,6 +601,7 @@ class VoroniRenderer{
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.conePositionBuffer);
         this.gl.vertexAttribPointer(this.finalOutput.attributes.vertexPosition, 3, this.gl.FLOAT, false, 0, 0);
 
+        let ct = 0;
         /* Draw a cone for each point*/
         this.points.forEach((point, idx) => {
             /* Setup model view matrix for next voroni point */
@@ -611,26 +611,26 @@ class VoroniRenderer{
                 modelViewMatrix,
                 [point.x, point.y, 0.0]
             );
-
-            const scalingFactor = 0.1 + point.weight / 250;
-
-            mat4.scale(
-                modelViewMatrix,
-                modelViewMatrix,
-                [scalingFactor, scalingFactor, scalingFactor]
-            );
-            this.gl.uniformMatrix4fv(
-                this.finalOutput.uniforms.modelViewMatrix,
-                false,
-                modelViewMatrix
-            );
-            this.gl.uniform3fv(this.finalOutput.uniforms.vertexColor, new Float32Array([0.0, 0.0, 0.0]));
-            this.gl.drawArrays(this.gl.TRIANGLE_FAN, 0, this.coneResolution+2);
+            if(point.weight > 10){
+                //const scalingFactor = (point.weight / 255);
+                const scalingFactor = 0.4 + 0.01*(point.weight / 255);;
+                mat4.scale(
+                    modelViewMatrix,
+                    modelViewMatrix,
+                    [scalingFactor, scalingFactor, scalingFactor]
+                );
+                this.gl.uniformMatrix4fv(
+                    this.finalOutput.uniforms.modelViewMatrix,
+                    false,
+                    modelViewMatrix
+                );
+                this.gl.uniform3fv(this.finalOutput.uniforms.vertexColor, new Float32Array([0.0, 0.0, 0.0]));
+                this.gl.drawArrays(this.gl.TRIANGLE_FAN, 0, this.coneResolution+2);
+            }
         });
 
         this.gl.clearColor(0.0, 0.0, 0.0, 1.0);
     }
-
     
     /**
      * Encodes the current points as a Voronoi diagram into the framebuffer.
@@ -644,9 +644,12 @@ class VoroniRenderer{
         this.gl.viewport(0, 0, this.inputImage.width, this.inputImage.height);
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.conePositionBuffer);
         this.gl.vertexAttribPointer(this.voronoi.attributes.vertexPosition, 3, this.gl.FLOAT, false, 0, 0);
-
+        let ct = 0;
         /* Draw a cone for each point*/
         this.points.forEach((point, idx) => {
+            if(point.x === 0 && point.y === 0){ 
+                ct++;
+            }
             /* Setup model view matrix for next voroni point */
             const modelViewMatrix = mat4.create();
             mat4.translate(
@@ -663,6 +666,7 @@ class VoroniRenderer{
             this.gl.uniform3fv(this.voronoi.uniforms.vertexColor, indexEncodedAsRGB);
             this.gl.drawArrays(this.gl.TRIANGLE_FAN, 0, this.coneResolution+2);
         });
+        console.log(ct);
     }
 
     /* Renders a 1xcells textures containing the centroid of each cell of the Voronoi diagram
