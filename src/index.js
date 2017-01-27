@@ -33,7 +33,7 @@ const centroidFragmentShader = `
             vec2 coord = vec2(x / windowDimensions.x, gl_FragCoord.y / windowDimensions.y);
             vec4 voronoiTexel = texture2D(voronoiSampler, coord);
 
-            int i = int(255.0 * voronoiTexel.x + 65025.0 * voronoiTexel.y + 16581375.0 * voronoiTexel.z);
+            int i = int(255.0 * (voronoiTexel.x + (voronoiTexel.y * 256.0) + (voronoiTexel.z * 65536.0)));
 
             if(myIndex == i){
                 vec4 imageTexel = texture2D(imageSampler, coord);
@@ -499,12 +499,10 @@ class VoroniRenderer{
     _updatePointsFromCurrentFramebuffer(){
         const pixels = new Uint8Array(this.samples * 4);
         const imgd = this.gl.readPixels(0, 0, this.samples, 1, this.gl.RGBA, this.gl.UNSIGNED_BYTE, pixels);
-        
         for(let i = 0; i < this.samples; i++){
             const point = this.points[i];
             const newX = pixels[i*4];
             const newY = pixels[i*4+1];
-            //console.log(point);
             this.points[i] = {x: point.x * 0.75 + newX * 0.25, y: point.y * 0.75 + newY * 0.25 };
         }
     }
@@ -523,10 +521,10 @@ class VoroniRenderer{
      * @return {Float32Array} A 3 dimensional array representing i
     */
     _encodeIntToRGB(i){
-        const r = 1.0/255 * i;
-        const b = 1.0/65025 * Math.floor(i/255);
-        const g = 1.0/16581375 * Math.floor(i/65025);
-        return new Float32Array([r, g, b]);
+        const r = i % 256;
+        const g = Math.floor( i / 256 ) %256;
+        const b = Math.floor( i / 65536 ) %256;
+        return new Float32Array([r / 255.0, g / 255.0 , b /255.0]);
     }
     
     /**
