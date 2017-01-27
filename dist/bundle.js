@@ -512,6 +512,7 @@
 	                var extraBits = pixels[i * 4 + 2];
 	                var newX = pixels[i * 4] + extraBits % 16 * 256;
 	                var newY = pixels[i * 4 + 1] + (extraBits >> 4) * 256;
+
 	                //console.log(extraBits);
 	                var weight = pixels[i * 4 + 3];
 	                this.points[i] = { x: newX, y: newY, weight: weight };
@@ -536,10 +537,10 @@
 	            console.log(imageData.data);
 	            var i = 0;
 	            while (i < this.samples) {
-	                var x = Math.floor(Math.random() * this.inputImage.width);
-	                var y = Math.floor(Math.random() * this.inputImage.height);
+	                var x = Math.random() * this.inputImage.width;
+	                var y = Math.random() * this.inputImage.height;
 	                var index = x * 4 + y * tempCanvas.width * 4;
-	                var red = imageData.data[x * 4 + y * tempCanvas.width * 4];
+	                var red = imageData.data[Math.floor(x) * 4 + Math.floor(y) * tempCanvas.width * 4];
 	                if (Math.random() * 256 > red) {
 	                    this.points.push({ x: x, y: y, weight: 1 });
 	                    i++;
@@ -586,8 +587,8 @@
 	                var modelViewMatrix = _glMatrix.mat4.create();
 	                _glMatrix.mat4.translate(modelViewMatrix, modelViewMatrix, [point.x, point.y, 0.0]);
 	                if (point.weight > 10) {
-	                    //const scalingFactor = (point.weight / 255);
-	                    var scalingFactor = 0.4 + 0.01 * (point.weight / 255);;
+	                    var scalingFactor = point.weight / 200;
+	                    //const scalingFactor = 0.4 + 0.01*(point.weight / 255);;
 	                    _glMatrix.mat4.scale(modelViewMatrix, modelViewMatrix, [scalingFactor, scalingFactor, scalingFactor]);
 	                    _this4.gl.uniformMatrix4fv(_this4.finalOutput.uniforms.modelViewMatrix, false, modelViewMatrix);
 	                    _this4.gl.uniform3fv(_this4.finalOutput.uniforms.vertexColor, new Float32Array([0.0, 0.0, 0.0]));

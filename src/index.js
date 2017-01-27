@@ -545,6 +545,7 @@ class VoroniRenderer{
             const extraBits = pixels[i*4+2];
             const newX = (pixels[i*4] + (extraBits % 16 )* 256) ;
             const newY = (pixels[i*4+1] + (extraBits >> 4)* 256) ;
+            
             //console.log(extraBits);
             const weight = pixels[i*4+3];
             this.points[i] = {x: newX, y: newY, weight: weight };
@@ -566,10 +567,10 @@ class VoroniRenderer{
         console.log(imageData.data);
         let i = 0;
         while(i < this.samples){
-            const x = Math.floor(Math.random() * this.inputImage.width);
-            const y = Math.floor(Math.random() * this.inputImage.height);
+            const x = Math.random() * this.inputImage.width;
+            const y = Math.random() * this.inputImage.height;
             const index = x * 4 + y * tempCanvas.width * 4;
-            const red = imageData.data[x * 4 + y * tempCanvas.width * 4];
+            const red = imageData.data[ Math.floor(x) * 4 + Math.floor(y) * tempCanvas.width * 4];
             if(Math.random() * 256 > red){
                 this.points.push({x, y, weight: 1});
                 i++;
@@ -612,8 +613,8 @@ class VoroniRenderer{
                 [point.x, point.y, 0.0]
             );
             if(point.weight > 10){
-                //const scalingFactor = (point.weight / 255);
-                const scalingFactor = 0.4 + 0.01*(point.weight / 255);;
+                const scalingFactor = (point.weight / 200);
+                //const scalingFactor = 0.4 + 0.01*(point.weight / 255);;
                 mat4.scale(
                     modelViewMatrix,
                     modelViewMatrix,
