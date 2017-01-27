@@ -11,6 +11,12 @@ grabbing pixel data off canvas.
 ### What does this do?
 This is an artistic photo filter.  By inputting an image it will output a [stippled](https://en.wikipedia.org/wiki/Stippling) version.
 
+
+### Limitations
+
+Browsers that do not support WebGL (older versions of IE and many mobile phones do not support this).  Also, since WebGL is limited to 4 RGBA Unsigned bytes (32 bits) for reading from the framebuffer,
+image size is limited to 8192 for either width or height.
+
 ### Usage
 
 ### Images

@@ -1,17 +1,22 @@
 <!doctype html>
 <html>
 <head>
+    <style>
+        canvas{
+            border: 1px solid #FF0000;
+        }
+    </style>
 </head>
 <body>
     <script src="dist/bundle.js"></script>
     <img src="static/cat.jpg">
     <script>
-        const voroni = new VoroniRenderer(470, true);
+        const voroni = new VoroniRenderer(600, 25, true);
         const canvas = voroni.getCanvasDOMNode();
+        const debugCanvas = voroni._getDebugCanvasDOMNode();
         const body = document.getElementsByTagName("BODY")[0];
-        voroni.testData();
-        voroni.tick();
         body.appendChild(canvas);
+        body.appendChild(debugCanvas);
         
     </script>
 </body>
