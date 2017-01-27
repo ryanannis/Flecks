@@ -19,7 +19,7 @@ const centroidFragmentShader = `
     uniform sampler2D voronoiSampler;
     uniform vec2 windowDimensions;
 
-    const float max_samples = 10000.0;
+    const float max_samples = 50000.0;
 
       void main(void) { 
         // Index of Voronoi cell being searched for
@@ -40,10 +40,8 @@ const centroidFragmentShader = `
 
                 float weight = 1.0 - imageTexel.x;
                 weight = 0.01 + weight * 0.99;
-                
-                vec2 integerCoord = vec2(x + 0.5, gl_FragCoord.y);
 
-                color.x += x * weight;
+                color.x += (x + 0.5) * weight;
                 color.y += gl_FragCoord.y * weight;
                 color.z += weight;
                 color.w += 1.0;
@@ -64,7 +62,7 @@ const outputFragmentShader = `
     uniform sampler2D intermediateSampler;
     uniform vec2 windowDimensions;
 
-    const float max_height = 10000.0;
+    const float max_height = 100000.0;
 
     float modI(float a,float b) {
         float m=a-floor((a+0.5)/b)*b;
@@ -168,7 +166,7 @@ class VoroniRenderer{
         }
     }
     _initGL(){
-        this.canvas.width = this.inputImage.width;
+        this.canvas.width = this.samples;
         this.canvas.height = this.inputImage.height;
 
         this.exportCanvas.width = this.inputImage.width;
@@ -480,7 +478,7 @@ class VoroniRenderer{
             this.render();
             this._updatePointsFromCurrentFramebuffer();
             this._drawPointsOntoCanvas();
-            console.log(this.iterations);
+            //this._renderVoronoi(null);
         }
         else{
             this._drawPointsOntoCanvas();
@@ -492,7 +490,10 @@ class VoroniRenderer{
         ctx.clearRect(0, 0, this.exportCanvas.width, this.exportCanvas.height);
 
         for(let i = 0; i < this.samples; i++){
-            ctx.fillRect(this.points[i].x,this.points[i].y,1,1);
+            const x = this.points[i].x;
+            const y = this.points[i].y;
+            const weight = this.points[i].weight;
+            ctx.fillRect(x - weight /100, y - weight /100,1 + weight /100,1 + weight /100);
         }
     }
 
@@ -503,15 +504,34 @@ class VoroniRenderer{
             const point = this.points[i];
             const newX = pixels[i*4];
             const newY = pixels[i*4+1];
-            this.points[i] = {x: point.x * 0.75 + newX * 0.25, y: point.y * 0.75 + newY * 0.25 };
+            const weight = pixels[i*4+3];
+            this.points[i] = {x: newX, y: newY, weight: weight };
         }
     }
 
-    /* Generates test data for voronoi */
+    /* Generates intial data with rejection sampling */
     testData(){
         this.points = [];
-        for(let i = 0; i < this.samples; i++){
-            this.points.push({x: Math.random() * 255, y: Math.random() * 255})
+
+        /* Use temporary canvas to load image to get luminesence values.*/
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = this.inputImage.width;
+        tempCanvas.height = this.inputImage.height;
+
+        const ctx = tempCanvas.getContext('2d');
+        ctx.drawImage(this.inputImage, 0, 0);
+        const imageData = ctx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+        console.log(imageData.data);
+        let i = 0;
+        while(i < this.samples){
+            const x = Math.floor(Math.random() * this.inputImage.width);
+            const y = Math.floor(Math.random() * this.inputImage.height);
+            const index = x * 4 + y * tempCanvas.width * 4;
+            const red = imageData.data[x * 4 + y * tempCanvas.width * 4];
+            if(Math.random() * 256 > red){
+                this.points.push({x, y, weight: 1});
+                i++;
+            }
         }
     }
 
@@ -530,12 +550,12 @@ class VoroniRenderer{
     /**
      * Encodes the current points as a Voronoi diagram into the framebuffer.
     */
-    _renderVoronoi(){
+    _renderVoronoi(framebuffer){
         this.gl.useProgram(this.voronoi.shaderProgram);
         this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
 
         /* Render Voronoi to framebuffer */
-        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.frameBuffers.voronoi);
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, framebuffer);
         this.gl.viewport(0, 0, this.inputImage.width, this.inputImage.height);
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.conePositionBuffer);
         this.gl.vertexAttribPointer(this.voronoi.attributes.vertexPosition, 3, this.gl.FLOAT, false, 0, 0);
@@ -622,8 +642,7 @@ class VoroniRenderer{
         if(!this.imageLoaded){
             return;
         }
- 
-        this._renderVoronoi();
+        this._renderVoronoi(this.frameBuffers.voronoi);
         this._renderCentroid();
         this._renderOutput();
     }
