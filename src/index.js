@@ -243,7 +243,7 @@ class VoroniRenderer{
         this.gl.activeTexture(this.gl.TEXTURE0);
         this.textures.imageTexture = this.gl.createTexture();
         this.gl.bindTexture(this.gl.TEXTURE_2D, this.textures.imageTexture);
-        this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, true);
+        //this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, true);
         this.gl.texImage2D(
             this.gl.TEXTURE_2D,
             0,
@@ -478,7 +478,8 @@ class VoroniRenderer{
             this.render();
             this._updatePointsFromCurrentFramebuffer();
             this._drawPointsOntoCanvas();
-            //this._renderVoronoi(null);
+            console.log(this.iterations);
+            this._renderVoronoi(null);
         }
         else{
             this._drawPointsOntoCanvas();
