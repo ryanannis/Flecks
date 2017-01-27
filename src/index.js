@@ -549,6 +549,36 @@ class VoroniRenderer{
         const b = Math.floor( i / 65536 ) %256;
         return new Float32Array([r / 255.0, g / 255.0 , b /255.0]);
     }
+
+    /* Renders a 1xcells textures containing the centroid of each cell of the Voronoi diagram
+     * encoded in the colors of each pixel */
+    _renderFinalOutput(){
+        this.gl.useProgram(this.centroid.shaderProgram);
+
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.frameBuffers.intermediate);
+        this.gl.viewport(0, 0, this.samples, this.inputImage.height);
+        this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
+        
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.quadPositionBuffer);
+        this.gl.vertexAttribPointer(this.centroid.attributes.vertexPosition, 3, this.gl.FLOAT, false, 0, 0);
+
+        /* Setup model view matrix for next voroni point */
+        const modelViewMatrix = mat4.create();
+        this.gl.uniformMatrix4fv(
+            this.centroid.uniforms.modelViewMatrix,
+            false,
+            modelViewMatrix
+        );
+        this.gl.uniform2fv(
+            this.centroid.uniforms.windowDimensions,
+            new Float32Array([this.inputImage.width, this.inputImage.height])
+        );
+
+        /* Setup Texture Samplers */
+        this.gl.uniform1i(this.centroid.uniforms.imageSampler, 0);
+        this.gl.uniform1i(this.centroid.uniforms.voronoiSampler, 1);
+        this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
+    }
     
     /**
      * Encodes the current points as a Voronoi diagram into the framebuffer.

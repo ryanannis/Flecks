@@ -1,4 +1,4 @@
-# StippleEdge
+# Flecks
 
 ## Warning:  This is a Work in Progress.  It is currently functional but has many limitations that are being ironed out currently.
 
@@ -24,3 +24,8 @@ instancing and tranform feedback.
 ### Attribution 
 
 Credits to Adrian Secord for the original paper and [Matt Keeter](www.mattkeeter.com) for his approach to generating centroidal Voronoi diagrams on GPU.
+
+### License 
+
+[!License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](http://creativecommons.org/licenses/by-nc/4.0/)
+
