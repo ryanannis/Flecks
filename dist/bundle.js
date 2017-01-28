@@ -66,9 +66,9 @@
 	/* Credits to Matt Keeter for this approach https://www.mattkeeter.com/projects/swingline/ */
 	var centroidVertexShader = '\n    attribute vec3 vertexPosition;\n\n    uniform mat4 orthoMatrix;\n    uniform mat4 modelViewMatrix;\n\n    void main(void) {\n        gl_Position = orthoMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);\n    }\n';
 
-	var centroidFragmentShader = '\n    precision highp float;\n    \n    uniform sampler2D imageSampler;\n    uniform sampler2D voronoiSampler;\n    uniform vec2 windowDimensions;\n\n    const float max_samples = 50000.0;\n\n      void main(void) { \n        // Index of Voronoi cell being searched for\n        int myIndex = int(gl_FragCoord.x);\n        vec4 color = vec4(0.0, 0.0, 0.0, 0.0);\n\n        for(float x = 0.0; x < max_samples ; x++){\n            if(x > windowDimensions.x){\n                break;\n            }\n            vec2 coord = vec2(x / windowDimensions.x, gl_FragCoord.y / windowDimensions.y);\n            vec4 voronoiTexel = texture2D(voronoiSampler, coord);\n\n            int i = int(255.0 * (voronoiTexel.x + (voronoiTexel.y * 256.0) + (voronoiTexel.z * 65536.0)));\n\n            if(myIndex == i){\n                vec4 imageTexel = texture2D(imageSampler, coord);\n\n                float weight = 1.0 - imageTexel.x;\n                weight = 0.01 + weight * 0.99;\n\n                color.x += (x + 0.5) * weight;\n                color.y += gl_FragCoord.y * weight;\n                color.z += weight;\n                color.w += 1.0;\n            }\n        }\n\n        gl_FragColor = vec4(\n            color.x, \n            color.y, \n            color.z,\n            color.w\n        );\n    }\n';
+	var centroidFragmentShader = '\n    precision highp float;\n    \n    uniform sampler2D imageSampler;\n    uniform sampler2D voronoiSampler;\n    uniform vec2 windowDimensions;\n\n    const float max_samples = 50000.0;\n\n      void main(void) { \n        // Index of Voronoi cell being searched for\n        int myIndex = int(gl_FragCoord.x);\n        vec4 color = vec4(0.0, 0.0, 0.0, 0.0);\n\n        for(float x = 0.0; x < max_samples ; x++){\n            if(x >= windowDimensions.x){\n                break;\n            }\n            vec2 textureCoord = vec2((x + 0.5) / windowDimensions.x, gl_FragCoord.y / windowDimensions.y);\n            vec4 voronoiTexel = texture2D(voronoiSampler, textureCoord);\n\n            int i = int(255.0 * (voronoiTexel.x + (voronoiTexel.y * 256.0) + (voronoiTexel.z * 65536.0)));\n\n            if(myIndex == i){\n                vec4 imageTexel = texture2D(imageSampler, textureCoord);\n                float weight = 1.0 - 0.299* imageTexel.x - 0.587 * imageTexel.y - 0.114 * imageTexel.z;\n                //weight = 0.01 + weight * 0.99;\n                weight = 1.0;\n\n                color.x += (x + 0.5) * weight;\n                color.y += gl_FragCoord.y * weight;\n                color.z += weight;\n                color.w += 1.0;\n            }\n        }\n\n        gl_FragColor = color;\n    }\n';
 
-	var outputFragmentShader = '\n    precision highp float;\n    uniform sampler2D intermediateSampler;\n    uniform vec2 windowDimensions;\n\n    const float max_height = 100000.0;\n\n    float modI(float a,float b) {\n        float m=a-floor((a+0.5)/b)*b;\n        return floor(m+0.5);\n    }\n\n    void main(void) {\n        float weight = 0.0;\n        float count = 0.0;\n\n        /* piecewise integral */\n        float ix = 0.0;\n        float iy = 0.0;\n\n        for(float y = 1.0; y < max_height; y++){\n            if(y > windowDimensions.y){\n                break;\n            }\n\n            vec2 texCoord = vec2(gl_FragCoord.x/windowDimensions.x, y/windowDimensions.y);\n            vec4 imageTexel = texture2D(intermediateSampler, texCoord );\n            ix += imageTexel.x;\n            iy += imageTexel.y;\n            weight += imageTexel.z; \n            count += imageTexel.w;\n        }\n        ix /= weight;\n        iy /= weight;\n        weight /= count;\n\n        /* We use the third vector to bitpack an additional 4 bits per coordinate to get resolutions upto 4096*4096*/\n        gl_FragColor = vec4(\n            mod(ix, 256.0) / 255.0,\n            mod(iy, 256.0) / 255.0,\n            (floor(ix/256.0) + floor(iy/256.0) * 16.0)/255.0,\n            weight\n        );\n    }\n';
+	var outputFragmentShader = '\n    precision highp float;\n    uniform sampler2D intermediateSampler;\n    uniform vec2 windowDimensions;\n\n    const float max_height = 100000.0;\n\n    void main(void) {\n        float weight = 0.0;\n        float count = 0.0;\n\n        /* piecewise integral */\n        float ix = 0.0;\n        float iy = 0.0;\n\n        for(float y = 0.0; y < max_height; y++){\n            if(y >= windowDimensions.y){\n                break;\n            }\n\n            vec2 texCoord = vec2(gl_FragCoord.x/windowDimensions.x, (y + 0.5)/windowDimensions.y);\n            vec4 imageTexel = texture2D(intermediateSampler, texCoord );\n\n            ix += imageTexel.x;\n            iy += imageTexel.y;\n            weight += imageTexel.z; \n            count += imageTexel.w;\n        }\n        ix /= weight;\n        iy /= weight;\n        weight /= count;\n\n        ix /= 2.0;\n        iy /= 2.0;\n\n        /* We use the third vector to bitpack an additional 4 bits per coordinate to get resolutions upto 4096*4096*/\n        gl_FragColor = vec4(\n            mod(floor(ix), 256.0) / 255.0,\n            mod(floor(iy), 256.0) / 255.0,\n            (floor(ix/256.0) + floor(iy/256.0) * 16.0)/255.0,\n            count/510.0\n        );\n    }\n';
 	var voronoiVertexShader = '\n    attribute vec3 vertexPosition;\n    uniform mat4 orthoMatrix;\n    uniform mat4 modelViewMatrix;\n    void main(void) {\n        gl_Position = orthoMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);\n    }\n';
 
 	var voronoiFragmentShader = '\n    precision mediump float;\n    uniform vec3 vertexColor;\n    void main(void) { \n        gl_FragColor =  vec4(vertexColor, 1.0);\n    }\n';
@@ -115,7 +115,7 @@
 	            this.canvas.width = 0;
 	            this.canvas.height = 1;
 
-	            this.gl = this.canvas.getContext('webgl', { preserveDrawingBuffer: true });
+	            this.gl = this.canvas.getContext('webgl', { preserveDrawingBuffer: true, antialias: false });
 	            this.textures = {};
 	            this.buffers = {};
 	            this.centroid = { attributes: {}, uniforms: {} };
@@ -138,8 +138,8 @@
 	    }, {
 	        key: '_initGL',
 	        value: function _initGL() {
-	            this.canvas.width = this.samples;
-	            this.canvas.height = this.inputImage.height;
+	            this.canvas.width = Math.max(this.inputImage.width * 2, this.samples);
+	            this.canvas.height = this.inputImage.height * 2;
 
 	            this._initShaders();
 
@@ -185,7 +185,7 @@
 	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
 	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
 	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
-	            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.inputImage.width, this.inputImage.height, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, null);
+	            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.inputImage.width * 2, this.inputImage.height * 2, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, null);
 
 	            this.frameBuffers.voronoi = this.gl.createFramebuffer();
 	            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.frameBuffers.voronoi);
@@ -194,7 +194,7 @@
 	            /* Voronoi diagram needs a depthbuffer because of how the cone algorithm works */
 	            var renderbuffer = this.gl.createRenderbuffer();
 	            this.gl.bindRenderbuffer(this.gl.RENDERBUFFER, renderbuffer);
-	            this.gl.renderbufferStorage(this.gl.RENDERBUFFER, this.gl.DEPTH_COMPONENT16, this.inputImage.width, this.inputImage.height);
+	            this.gl.renderbufferStorage(this.gl.RENDERBUFFER, this.gl.DEPTH_COMPONENT16, this.inputImage.width * 2, this.inputImage.height * 2);
 	            this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.textures.voronoiTexture, 0);
 	            this.gl.framebufferRenderbuffer(this.gl.FRAMEBUFFER, this.gl.DEPTH_ATTACHMENT, this.gl.RENDERBUFFER, renderbuffer);
 
@@ -205,7 +205,7 @@
 	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
 	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
 	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
-	            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.samples, this.inputImage.height, 0, this.gl.RGBA, this.gl.FLOAT, null);
+	            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.samples, this.inputImage.height * 2, 0, this.gl.RGBA, this.gl.FLOAT, null);
 
 	            this.frameBuffers.intermediate = this.gl.createFramebuffer();
 	            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.frameBuffers.intermediate);
@@ -492,7 +492,8 @@
 	                });
 	                this.render();
 	                this._updatePointsFromCurrentFramebuffer();
-	                //this._renderVoronoi(null);
+	                this._renderVoronoi(null);
+	                this._debugRenderVoronoiCenters();
 	            } else {
 	                this._drawPointsOntoCanvas();
 	            }
@@ -507,16 +508,21 @@
 	        value: function _updatePointsFromCurrentFramebuffer() {
 	            var pixels = new Uint8Array(this.samples * 4);
 	            var imgd = this.gl.readPixels(0, 0, this.samples, 1, this.gl.RGBA, this.gl.UNSIGNED_BYTE, pixels);
+	            var sumweight = 0;
 	            for (var i = 0; i < this.samples; i++) {
 	                var point = this.points[i];
 	                var extraBits = pixels[i * 4 + 2];
-	                var newX = pixels[i * 4] + extraBits % 16 * 256;
-	                var newY = pixels[i * 4 + 1] + (extraBits >> 4) * 256;
+	                var yExpansion = pixels[i * 4 + 3];
+	                sumweight += yExpansion;
+	                //console.log('x', point.x);
+	                //console.log('y', point.y);
+	                //console.log('weight', yExpansion * 4);
+	                var newX = pixels[i * 4];
+	                var newY = pixels[i * 4 + 1];
 
-	                //console.log(extraBits);
-	                var weight = pixels[i * 4 + 3];
-	                this.points[i] = { x: newX, y: newY, weight: weight };
+	                this.points[i] = { x: newX, y: newY, weight: 100 };
 	            }
+	            console.log(sumweight);
 	        }
 
 	        /* Generates intial data with rejection sampling */
@@ -613,15 +619,12 @@
 
 	            /* Render Voronoi to framebuffer */
 	            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, framebuffer);
-	            this.gl.viewport(0, 0, this.inputImage.width, this.inputImage.height);
+	            this.gl.viewport(0, 0, this.inputImage.width * 2, this.inputImage.height * 2);
 	            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.conePositionBuffer);
 	            this.gl.vertexAttribPointer(this.voronoi.attributes.vertexPosition, 3, this.gl.FLOAT, false, 0, 0);
-	            var ct = 0;
+
 	            /* Draw a cone for each point*/
 	            this.points.forEach(function (point, idx) {
-	                if (point.x === 0 && point.y === 0) {
-	                    ct++;
-	                }
 	                /* Setup model view matrix for next voroni point */
 	                var modelViewMatrix = _glMatrix.mat4.create();
 	                _glMatrix.mat4.translate(modelViewMatrix, modelViewMatrix, [point.x / _this5.inputImage.width * 2 - 1, point.y / _this5.inputImage.height * 2 - 1, 0.0]);
@@ -630,7 +633,30 @@
 	                _this5.gl.uniform3fv(_this5.voronoi.uniforms.vertexColor, indexEncodedAsRGB);
 	                _this5.gl.drawArrays(_this5.gl.TRIANGLE_FAN, 0, _this5.coneResolution + 2);
 	            });
-	            console.log(ct);
+	        }
+	    }, {
+	        key: '_debugRenderVoronoiCenters',
+	        value: function _debugRenderVoronoiCenters() {
+	            var _this6 = this;
+
+	            this.gl.useProgram(this.voronoi.shaderProgram);
+	            this.gl.clear(this.gl.DEPTH_BUFFER_BIT);
+
+	            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+	            this.gl.viewport(0, 0, this.inputImage.width * 2, this.inputImage.height * 2);
+	            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.conePositionBuffer);
+	            this.gl.vertexAttribPointer(this.voronoi.attributes.vertexPosition, 3, this.gl.FLOAT, false, 0, 0);
+
+	            /* Draw a cone for each point*/
+	            this.points.forEach(function (point) {
+	                /* Setup model view matrix for next voroni point */
+	                var modelViewMatrix = _glMatrix.mat4.create();
+	                _glMatrix.mat4.translate(modelViewMatrix, modelViewMatrix, [point.x / _this6.inputImage.width * 2 - 1, point.y / _this6.inputImage.height * 2 - 1, 0.0]);
+	                _glMatrix.mat4.scale(modelViewMatrix, modelViewMatrix, [0.001, 0.001, 0.001]);
+	                _this6.gl.uniformMatrix4fv(_this6.voronoi.uniforms.modelViewMatrix, false, modelViewMatrix);
+	                _this6.gl.uniform3f(_this6.voronoi.uniforms.vertexColor, 1.0, 1.0, 1.0);
+	                _this6.gl.drawArrays(_this6.gl.TRIANGLE_FAN, 0, _this6.coneResolution + 2);
+	            });
 	        }
 
 	        /* Renders a 1xcells textures containing the centroid of each cell of the Voronoi diagram
@@ -642,7 +668,7 @@
 	            this.gl.useProgram(this.centroid.shaderProgram);
 
 	            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.frameBuffers.intermediate);
-	            this.gl.viewport(0, 0, this.samples, this.inputImage.height);
+	            this.gl.viewport(0, 0, this.samples, this.inputImage.height * 2);
 	            this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
 
 	            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.quadPositionBuffer);
@@ -651,7 +677,7 @@
 	            /* Setup model view matrix for next voroni point */
 	            var modelViewMatrix = _glMatrix.mat4.create();
 	            this.gl.uniformMatrix4fv(this.centroid.uniforms.modelViewMatrix, false, modelViewMatrix);
-	            this.gl.uniform2fv(this.centroid.uniforms.windowDimensions, new Float32Array([this.inputImage.width, this.inputImage.height]));
+	            this.gl.uniform2fv(this.centroid.uniforms.windowDimensions, new Float32Array([this.inputImage.width * 2, this.inputImage.height * 2]));
 
 	            /* Setup Texture Samplers */
 	            this.gl.uniform1i(this.centroid.uniforms.imageSampler, 0);
@@ -676,7 +702,7 @@
 	            /* Setup model view matrix for next voroni point */
 	            var modelViewMatrix = _glMatrix.mat4.create();
 	            this.gl.uniformMatrix4fv(this.output.uniforms.modelViewMatrix, false, modelViewMatrix);
-	            this.gl.uniform2fv(this.output.uniforms.windowDimensions, new Float32Array([this.samples, this.inputImage.height]));
+	            this.gl.uniform2fv(this.output.uniforms.windowDimensions, new Float32Array([this.samples, this.inputImage.height * 2]));
 
 	            /* Setup Texture Samplers */
 	            this.gl.uniform1i(this.output.uniforms.intermediateSampler, 2);
