@@ -37,13 +37,19 @@ const centroidFragmentShader = `
             int i = int(255.0 * (voronoiTexel.x + (voronoiTexel.y * 256.0) + (voronoiTexel.z * 65536.0)));
 
             if(myIndex == i){
+<<<<<<< HEAD
                 vec4 imageTexel = texture2D(imageSampler, textureCoord);
                 float weight = 1.0 - 0.299* imageTexel.x - 0.587 * imageTexel.y - 0.114 * imageTexel.z;
                 //weight = 0.01 + weight * 0.99;
                 weight = 1.0;
+=======
+                vec4 imageTexel = texture2D(imageSampler, coord);
+                float weight = 1.0 - 0.299* imageTexel.x - 0.587 * imageTexel.y - 0.114 * imageTexel.z;
+                weight = 0.01 + weight * 0.99;
+>>>>>>> master
 
                 color.x += (x + 0.5) * weight;
-                color.y += gl_FragCoord.y * weight;
+                color.y += (gl_FragCoord.y) * weight;
                 color.z += weight;
                 color.w += 1.0;
             }
@@ -89,8 +95,13 @@ const outputFragmentShader = `
         gl_FragColor = vec4(
             mod(floor(ix), 256.0) / 255.0,
             mod(floor(iy), 256.0) / 255.0,
+<<<<<<< HEAD
             (floor(ix/256.0) + floor(iy/256.0) * 16.0)/255.0,
             count/255.0
+=======
+            (floor(ix/256.0) * 16.0 + mod(floor(ix * 16.0), 16.0) ) / 255.0,
+            (floor(iy/256.0) * 16.0 + mod(floor(iy * 16.0), 16.0) ) / 255.0
+>>>>>>> master
         );
     }
 `
@@ -216,7 +227,7 @@ class VoroniRenderer{
         this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
         this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
         this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
-        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.inputImage.width, this.inputImage.height, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, null);
+        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.inputImage.width * 2, this.inputImage.height * 2, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, null);
         
         this.frameBuffers.voronoi = this.gl.createFramebuffer();
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.frameBuffers.voronoi);
@@ -225,7 +236,7 @@ class VoroniRenderer{
         /* Voronoi diagram needs a depthbuffer because of how the cone algorithm works */
         const renderbuffer = this.gl.createRenderbuffer();
         this.gl.bindRenderbuffer(this.gl.RENDERBUFFER, renderbuffer);
-        this.gl.renderbufferStorage(this.gl.RENDERBUFFER, this.gl.DEPTH_COMPONENT16, this.inputImage.width, this.inputImage.height);
+        this.gl.renderbufferStorage(this.gl.RENDERBUFFER, this.gl.DEPTH_COMPONENT16, this.inputImage.width *2, this.inputImage.height * 2);
         this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.textures.voronoiTexture, 0);
         this.gl.framebufferRenderbuffer(this.gl.FRAMEBUFFER, this.gl.DEPTH_ATTACHMENT, this.gl.RENDERBUFFER, renderbuffer);
 
@@ -541,8 +552,7 @@ class VoroniRenderer{
             //console.log('y', point.y);
             //console.log('weight', yExpansion * 4);
             const newX = (pixels[i*4]) ;
-            const newY = (pixels[i*4+1]) ;            
-
+            const newY = (pixels[i*4+1]) ;
             this.points[i] = {x: newX, y: newY, weight: 100 };
         }
         console.log(sumweight);
@@ -560,7 +570,6 @@ class VoroniRenderer{
         const ctx = tempCanvas.getContext('2d');
         ctx.drawImage(this.inputImage, 0, 0);
         const imageData = ctx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
-        console.log(imageData.data);
         let i = 0;
         while(i < this.samples){
             const x = Math.random() * this.inputImage.width;
@@ -640,7 +649,7 @@ class VoroniRenderer{
 
         /* Render Voronoi to framebuffer */
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, framebuffer);
-        this.gl.viewport(0, 0, this.inputImage.width, this.inputImage.height);
+        this.gl.viewport(0, 0, this.inputImage.width * 2, this.inputImage.height * 2);
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.conePositionBuffer);
         this.gl.vertexAttribPointer(this.voronoi.attributes.vertexPosition, 3, this.gl.FLOAT, false, 0, 0);
 
@@ -702,7 +711,6 @@ class VoroniRenderer{
             this.gl.uniform3f(this.voronoi.uniforms.vertexColor, 1.0, 1.0, 1.0);
             this.gl.drawArrays(this.gl.TRIANGLE_FAN, 0, this.coneResolution+2);
         });
-
     }
 
     /* Renders a 1xcells textures containing the centroid of each cell of the Voronoi diagram
