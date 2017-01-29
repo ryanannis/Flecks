@@ -5,11 +5,10 @@ import { mat4 } from 'gl-matrix';
 const centroidVertexShader = `
     attribute vec3 vertexPosition;
 
-    uniform mat4 orthoMatrix;
     uniform mat4 modelViewMatrix;
 
     void main(void) {
-        gl_Position = orthoMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);
+        gl_Position =  modelViewMatrix * vec4(vertexPosition, 1.0);
     }
 `;
 
@@ -24,8 +23,8 @@ const centroidFragmentShader = `
 
       void main(void) { 
         // Index of Voronoi cell being searched for
-        int myIndex = int(gl_FragCoord.x);
-        vec4 color = vec4(0.0, 0.0, 0.0, 0.0);
+        int thisIndex = int(gl_FragCoord.x);
+        gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);
 
         for(float x = 0.0; x < max_samples ; x++){
             if(x >= windowDimensions.x){
@@ -34,22 +33,20 @@ const centroidFragmentShader = `
             vec2 textureCoord = vec2((x + 0.5) / windowDimensions.x, gl_FragCoord.y / windowDimensions.y);
             vec4 voronoiTexel = texture2D(voronoiSampler, textureCoord);
 
-            int i = int(255.0 * (voronoiTexel.x + (voronoiTexel.y * 256.0) + (voronoiTexel.z * 65536.0)));
+            int currentVoronoiIndex = int(255.0 * (voronoiTexel.x + (voronoiTexel.y * 256.0) + (voronoiTexel.z * 65536.0)));
 
-            if(myIndex == i){
+            if(currentVoronoiIndex == thisIndex){
                 vec4 imageTexel = texture2D(imageSampler, textureCoord);
                 float weight = 1.0 - 0.299* imageTexel.x - 0.587 * imageTexel.y - 0.114 * imageTexel.z;
-                //weight = 0.01 + weight * 0.99;
-                weight = 1.0;
+                weight = 0.01 + weight * 0.99; // give minum weight to avoid divide by zero
+                weight = 1.0; // For debugging, if we set weight to 1.0 it should spread out evenly
 
-                color.x += (x + 0.5) * weight;
-                color.y += (gl_FragCoord.y) * weight;
-                color.z += weight;
-                color.w += 1.0;
+                gl_FragColor.x += (x + 0.5) * weight;
+                gl_FragColor.y += (gl_FragCoord.y) * weight;
+                gl_FragColor.z += weight;
+                gl_FragColor.w += 1.0;
             }
         }
-
-        gl_FragColor = color;
     }
 `;
 
@@ -64,7 +61,7 @@ const outputFragmentShader = `
         float weight = 0.0;
         float count = 0.0;
 
-        /* piecewise integral */
+        /* Accumulate summing over columns */
         float ix = 0.0;
         float iy = 0.0;
 
@@ -85,7 +82,8 @@ const outputFragmentShader = `
         iy /= weight;
         weight /= count;
 
-        /* We use the third vector to bitpack an additional 4 bits per coordinate to get resolutions upto 4096*4096*/
+        /* We use the third vector to bitpack an additional 4 bits per coordinate to get resolutions upto 4096*4096
+         * with single pixel precision */
         gl_FragColor = vec4(
             mod(floor(ix), 256.0) / 255.0,
             mod(floor(iy), 256.0) / 255.0,
@@ -96,10 +94,9 @@ const outputFragmentShader = `
 `
 const voronoiVertexShader  = `
     attribute vec3 vertexPosition;
-    uniform mat4 orthoMatrix;
     uniform mat4 modelViewMatrix;
     void main(void) {
-        gl_Position = orthoMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);
+        gl_Position =  modelViewMatrix * vec4(vertexPosition, 1.0);
     }
 `;
 
@@ -121,10 +118,9 @@ const finalOutputFragmentShader = `
 
 const finalOutputVertexShader  = `
     attribute vec3 vertexPosition;
-    uniform mat4 orthoMatrix;
     uniform mat4 modelViewMatrix;
     void main(void) {
-        gl_Position = orthoMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);
+        gl_Position =  modelViewMatrix * vec4(vertexPosition, 1.0);
     }
 `;
 
@@ -146,7 +142,7 @@ class VoroniRenderer{
 
     _onReady(){
         this._enableExtensions();
-        this.testData();
+        this._genInitialData();
         this._initGL();
         this.tick();
     }
@@ -186,7 +182,6 @@ class VoroniRenderer{
 
         /* Bind data*/
         this._bindDataToBuffers();
-        this._bindDataToUniforms();
 
         /* Setup Textures */
         this._initImageAsTexture();
@@ -386,14 +381,17 @@ class VoroniRenderer{
     _createCone(x, y, edges){
         const pi = Math.PI;
         const vertices = new Array(edges*(3+2));
+        
+        /* Center of cone */
         vertices[0] = x;
         vertices[1] = y;
-        vertices[2] = 2;
+        vertices[2] = -1;
+        
         for(let i = 1 ; i <= edges+2; i++){
             const ratio = i/edges;
             vertices[i*3] = (x + Math.sin(2 * pi * ratio));
             vertices[i*3+1] = (y + Math.cos(2 * pi * ratio));
-            vertices[i*3+2] = 1;
+            vertices[i*3+2] = -0.5;
         }
         return vertices;
     }
@@ -418,22 +416,18 @@ class VoroniRenderer{
      * Inserts uniform locations into this.centroid.attributes
      */
     _getUniformLocations(){
-         this.centroid.uniforms.orthoMatrix = this.gl.getUniformLocation(this.centroid.shaderProgram, "orthoMatrix");
          this.centroid.uniforms.modelViewMatrix = this.gl.getUniformLocation(this.centroid.shaderProgram, "modelViewMatrix");
          this.centroid.uniforms.imageSampler = this.gl.getUniformLocation(this.centroid.shaderProgram, "imageSampler");
          this.centroid.uniforms.voronoiSampler = this.gl.getUniformLocation(this.centroid.shaderProgram, "voronoiSampler");
          this.centroid.uniforms.windowDimensions = this.gl.getUniformLocation(this.centroid.shaderProgram, "windowDimensions");
 
-         this.output.uniforms.orthoMatrix = this.gl.getUniformLocation(this.output.shaderProgram, "orthoMatrix");
          this.output.uniforms.modelViewMatrix = this.gl.getUniformLocation(this.output.shaderProgram, "modelViewMatrix");
          this.output.uniforms.intermediateSampler = this.gl.getUniformLocation(this.output.shaderProgram, "intermediateSampler");
          this.output.uniforms.windowDimensions = this.gl.getUniformLocation(this.output.shaderProgram, "windowDimensions");
 
-         this.voronoi.uniforms.orthoMatrix = this.gl.getUniformLocation(this.voronoi.shaderProgram, "orthoMatrix");
          this.voronoi.uniforms.modelViewMatrix = this.gl.getUniformLocation(this.voronoi.shaderProgram, "modelViewMatrix");
          this.voronoi.uniforms.vertexColor = this.gl.getUniformLocation(this.voronoi.shaderProgram, "vertexColor");
 
-         this.finalOutput.uniforms.orthoMatrix = this.gl.getUniformLocation(this.finalOutput.shaderProgram, "orthoMatrix");
          this.finalOutput.uniforms.modelViewMatrix = this.gl.getUniformLocation(this.finalOutput.shaderProgram, "modelViewMatrix");
          this.finalOutput.uniforms.vertexColor = this.gl.getUniformLocation(this.finalOutput.shaderProgram, "vertexColor");
     }
@@ -461,54 +455,6 @@ class VoroniRenderer{
         this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array(coneVertices), this.gl.STATIC_DRAW);
     }
 
-    /**
-     * Inserts needed matrices into uniforms
-     */
-    _bindDataToUniforms(){
-        /* Centroid Program */
-        this.gl.useProgram(this.centroid.shaderProgram);
-
-        const centroidOrthoMatrix = mat4.create();
-        mat4.ortho(centroidOrthoMatrix, -1, 1, -1, 1, 0.001, 100);  
-        this.gl.uniformMatrix4fv(
-            this.centroid.uniforms.orthoMatrix,
-            false,
-            centroidOrthoMatrix
-        );
-
-        /* Output program */
-        this.gl.useProgram(this.output.shaderProgram);
-        const outputOrthoMatrix = mat4.create();
-        mat4.ortho(outputOrthoMatrix, -1, 1, -1, 1, 0.001, 100);  
-        this.gl.uniformMatrix4fv(
-            this.output.uniforms.orthoMatrix,
-            false,
-            outputOrthoMatrix
-        );
-
-
-        /* Voronoi Generator */
-        this.gl.useProgram(this.voronoi.shaderProgram);
-        const voronoiOrthoMatrix = mat4.create();
-        mat4.ortho(voronoiOrthoMatrix, 0, this.inputImage.width, 0, this.inputImage.height, -100, 100);  
-        this.gl.uniformMatrix4fv(
-            this.voronoi.uniforms.orthoMatrix,
-            false,
-            voronoiOrthoMatrix
-        );
-
-        /* Voronoi Generator */
-        this.gl.useProgram(this.finalOutput.shaderProgram);
-        const finalOutputOrthoMatrix = mat4.create();
-        mat4.ortho(finalOutputOrthoMatrix, 0, this.inputImage.width, 0, this.inputImage.height, -100, 100);  
-        this.gl.uniformMatrix4fv(
-            this.finalOutput.uniforms.orthoMatrix,
-            false,
-            finalOutputOrthoMatrix
-        );
-        
-    }
-
     tick(){
         this.iterations--;
         if(this.iterations > 0){
@@ -516,6 +462,8 @@ class VoroniRenderer{
             requestAnimationFrame(() => this.tick());
             this.render();
             this._updatePointsFromCurrentFramebuffer();
+
+            /* Render voronoi as we go */
             this._renderVoronoi(null);
             this._debugRenderVoronoiCenters();
         }
@@ -532,23 +480,18 @@ class VoroniRenderer{
         const pixels = new Uint8Array(this.samples * 4);
         const imgd = this.gl.readPixels(0, 0, this.samples, 1, this.gl.RGBA, this.gl.UNSIGNED_BYTE, pixels);
         let sumweight = 0;
-        for(let i = 0; i < this.samples; i++){
+        for(let i = 0; i < this.samples + 1; i++){
             const point = this.points[i];
             const extraBits = pixels[i*4+2];
-            const yExpansion = pixels[i*4+3];
-            sumweight += yExpansion;
-            //console.log('x', point.x);
-            //console.log('y', point.y);
-            //console.log('weight', yExpansion * 4);
-            const newX = (pixels[i*4]) ;
-            const newY = (pixels[i*4+1]) ;
-            this.points[i] = {x: newX, y: newY, weight: 100 };
+            const weight = pixels[i*4+3];
+            const newX = (pixels[i*4] + (extraBits % 16 )* 256) ;
+            const newY = (pixels[i*4+1] + (extraBits >> 4)* 256) ;
+            this.points[i] = {x: newX, y: newY, weight: weight };
         }
-        console.log(sumweight);
     }
 
     /* Generates intial data with rejection sampling */
-    testData(){
+    _genInitialData(){
         this.points = [];
         /* Use temporary canvas to load image to get luminesence values.*/
         const tempCanvas = document.createElement('canvas');
@@ -572,7 +515,7 @@ class VoroniRenderer{
     }
 
     /**
-     * Encodes an int as a float in range [0-16581374].
+     * Encodes an int as a OpenGL formatted float.
      * @param {Number} i Must be a whole number
      * @return {Float32Array} A 3 dimensional array representing i
     */
@@ -596,7 +539,8 @@ class VoroniRenderer{
         this.gl.vertexAttribPointer(this.finalOutput.attributes.vertexPosition, 3, this.gl.FLOAT, false, 0, 0);
 
         let ct = 0;
-        /* Draw a cone for each point*/
+
+        this.gl.uniform3fv(this.finalOutput.uniforms.vertexColor, new Float32Array([0.0, 0.0, 0.0]));
         this.points.forEach((point, idx) => {
             /* Setup model view matrix for next voroni point */
             const modelViewMatrix = mat4.create();
@@ -604,24 +548,18 @@ class VoroniRenderer{
             mat4.translate(
                 modelViewMatrix,
                 modelViewMatrix,
-                [point.x, point.y, 0]
+                [point.x/this.inputImage.width*2 - 1, point.y/this.inputImage.height * 2 - 1, 0]
             );
              mat4.scale(
                 modelViewMatrix,
                 modelViewMatrix,
-                [1.0, 1.0, 1.0]
+                [2/this.inputImage.width, 2/this.inputImage.height, 1.0]
             );
             this.gl.uniformMatrix4fv(
                 this.finalOutput.uniforms.modelViewMatrix,
                 false,
                 modelViewMatrix
             );
-            this.gl.uniformMatrix4fv(
-                this.finalOutput.uniforms.modelViewMatrix,
-                false,
-                modelViewMatrix
-            );
-            this.gl.uniform3fv(this.finalOutput.uniforms.vertexColor, new Float32Array([0.0, 0.0, 0.0]));
             this.gl.drawArrays(this.gl.TRIANGLE_FAN, 0, this.coneResolution+2);
         });
 
@@ -645,16 +583,10 @@ class VoroniRenderer{
         this.points.forEach((point, idx) => {
             /* Setup model view matrix for next voroni point */
             const modelViewMatrix = mat4.create();
-            const dimension = Math.max(this.inputImage.width, this.inputImage.height);
             mat4.translate(
                 modelViewMatrix,
                 modelViewMatrix,
-                [point.x, point.y, 0]
-            );
-             mat4.scale(
-                modelViewMatrix,
-                modelViewMatrix,
-                [dimension, dimension, 1.0]
+                [point.x/this.inputImage.width*2 - 1, point.y/this.inputImage.height * 2 - 1, 0]
             );
             this.gl.uniformMatrix4fv(
                 this.voronoi.uniforms.modelViewMatrix,
@@ -676,27 +608,31 @@ class VoroniRenderer{
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.conePositionBuffer);
         this.gl.vertexAttribPointer(this.voronoi.attributes.vertexPosition, 3, this.gl.FLOAT, false, 0, 0);
 
+        this.gl.uniform3f(this.voronoi.uniforms.vertexColor, 1.0, 1.0, 1.0);
         /* Draw a cone for each point*/
         this.points.forEach((point) => {
-            /* Setup model view matrix for next voroni point */
             const modelViewMatrix = mat4.create();
-            const dimension = Math.max(this.inputImage.width, this.inputImage.height);
             mat4.translate(
                 modelViewMatrix,
                 modelViewMatrix,
-                [point.x, point.y, 0]
+                [point.x/this.inputImage.width*2 - 1, point.y/this.inputImage.height * 2 - 1, 0]
             );
-             mat4.scale(
+            mat4.scale(
                 modelViewMatrix,
                 modelViewMatrix,
-                [1.0, 1.0, 1.0]
+                 [2/this.inputImage.width, 2/this.inputImage.height, 1.0]
+            );
+            
+            this.gl.uniformMatrix4fv(
+                this.voronoi.uniforms.modelViewMatrix,
+                false,
+                modelViewMatrix
             );
             this.gl.uniformMatrix4fv(
                 this.voronoi.uniforms.modelViewMatrix,
                 false,
                 modelViewMatrix
             );
-            this.gl.uniform3f(this.voronoi.uniforms.vertexColor, 1.0, 1.0, 1.0);
             this.gl.drawArrays(this.gl.TRIANGLE_FAN, 0, this.coneResolution+2);
         });
     }

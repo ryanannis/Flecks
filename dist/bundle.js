@@ -64,18 +64,18 @@
 	function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
 
 	/* Credits to Matt Keeter for this approach https://www.mattkeeter.com/projects/swingline/ */
-	var centroidVertexShader = '\n    attribute vec3 vertexPosition;\n\n    uniform mat4 orthoMatrix;\n    uniform mat4 modelViewMatrix;\n\n    void main(void) {\n        gl_Position = orthoMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);\n    }\n';
+	var centroidVertexShader = '\n    attribute vec3 vertexPosition;\n\n    uniform mat4 modelViewMatrix;\n\n    void main(void) {\n        gl_Position =  modelViewMatrix * vec4(vertexPosition, 1.0);\n    }\n';
 
-	var centroidFragmentShader = '\n    precision highp float;\n    \n    uniform sampler2D imageSampler;\n    uniform sampler2D voronoiSampler;\n    uniform vec2 windowDimensions;\n\n    const float max_samples = 50000.0;\n\n      void main(void) { \n        // Index of Voronoi cell being searched for\n        int myIndex = int(gl_FragCoord.x);\n        vec4 color = vec4(0.0, 0.0, 0.0, 0.0);\n\n        for(float x = 0.0; x < max_samples ; x++){\n            if(x >= windowDimensions.x){\n                break;\n            }\n            vec2 textureCoord = vec2((x + 0.5) / windowDimensions.x, gl_FragCoord.y / windowDimensions.y);\n            vec4 voronoiTexel = texture2D(voronoiSampler, textureCoord);\n\n            int i = int(255.0 * (voronoiTexel.x + (voronoiTexel.y * 256.0) + (voronoiTexel.z * 65536.0)));\n\n            if(myIndex == i){\n                vec4 imageTexel = texture2D(imageSampler, textureCoord);\n                float weight = 1.0 - 0.299* imageTexel.x - 0.587 * imageTexel.y - 0.114 * imageTexel.z;\n                //weight = 0.01 + weight * 0.99;\n                weight = 1.0;\n\n                color.x += (x + 0.5) * weight;\n                color.y += (gl_FragCoord.y) * weight;\n                color.z += weight;\n                color.w += 1.0;\n            }\n        }\n\n        gl_FragColor = color;\n    }\n';
+	var centroidFragmentShader = '\n    precision highp float;\n    \n    uniform sampler2D imageSampler;\n    uniform sampler2D voronoiSampler;\n    uniform vec2 windowDimensions;\n\n    const float max_samples = 50000.0;\n\n      void main(void) { \n        // Index of Voronoi cell being searched for\n        int thisIndex = int(gl_FragCoord.x);\n        gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);\n\n        for(float x = 0.0; x < max_samples ; x++){\n            if(x >= windowDimensions.x){\n                break;\n            }\n            vec2 textureCoord = vec2((x + 0.5) / windowDimensions.x, gl_FragCoord.y / windowDimensions.y);\n            vec4 voronoiTexel = texture2D(voronoiSampler, textureCoord);\n\n            int currentVoronoiIndex = int(255.0 * (voronoiTexel.x + (voronoiTexel.y * 256.0) + (voronoiTexel.z * 65536.0)));\n\n            if(currentVoronoiIndex == thisIndex){\n                vec4 imageTexel = texture2D(imageSampler, textureCoord);\n                float weight = 1.0 - 0.299* imageTexel.x - 0.587 * imageTexel.y - 0.114 * imageTexel.z;\n                weight = 0.01 + weight * 0.99; // give minum weight to avoid divide by zero\n                weight = 1.0; // For debugging, if we set weight to 1.0 it should spread out evenly\n\n                gl_FragColor.x += (x + 0.5) * weight;\n                gl_FragColor.y += (gl_FragCoord.y) * weight;\n                gl_FragColor.z += weight;\n                gl_FragColor.w += 1.0;\n            }\n        }\n    }\n';
 
-	var outputFragmentShader = '\n    precision highp float;\n    uniform sampler2D intermediateSampler;\n    uniform vec2 windowDimensions;\n\n    const float max_height = 100000.0;\n\n    void main(void) {\n        float weight = 0.0;\n        float count = 0.0;\n\n        /* piecewise integral */\n        float ix = 0.0;\n        float iy = 0.0;\n\n        for(float y = 0.0; y < max_height; y++){\n            if(y >= windowDimensions.y){\n                break;\n            }\n\n            vec2 texCoord = vec2(gl_FragCoord.x/windowDimensions.x, (y + 0.5) / windowDimensions.y);\n            vec4 imageTexel = texture2D(intermediateSampler, texCoord );\n\n            ix += imageTexel.x;\n            iy += imageTexel.y;\n            weight += imageTexel.z; \n            count += imageTexel.w;\n        }\n        ix /= weight;\n        iy /= weight;\n        weight /= count;\n\n        /* We use the third vector to bitpack an additional 4 bits per coordinate to get resolutions upto 4096*4096*/\n        gl_FragColor = vec4(\n            mod(floor(ix), 256.0) / 255.0,\n            mod(floor(iy), 256.0) / 255.0,\n            (floor(ix/256.0) + floor(iy/256.0) * 16.0)/255.0,\n            count/255.0\n        );\n    }\n';
-	var voronoiVertexShader = '\n    attribute vec3 vertexPosition;\n    uniform mat4 orthoMatrix;\n    uniform mat4 modelViewMatrix;\n    void main(void) {\n        gl_Position = orthoMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);\n    }\n';
+	var outputFragmentShader = '\n    precision highp float;\n    uniform sampler2D intermediateSampler;\n    uniform vec2 windowDimensions;\n\n    const float max_height = 100000.0;\n\n    void main(void) {\n        float weight = 0.0;\n        float count = 0.0;\n\n        /* Accumulate summing over columns */\n        float ix = 0.0;\n        float iy = 0.0;\n\n        for(float y = 0.0; y < max_height; y++){\n            if(y >= windowDimensions.y){\n                break;\n            }\n\n            vec2 texCoord = vec2(gl_FragCoord.x/windowDimensions.x, (y + 0.5) / windowDimensions.y);\n            vec4 imageTexel = texture2D(intermediateSampler, texCoord );\n\n            ix += imageTexel.x;\n            iy += imageTexel.y;\n            weight += imageTexel.z; \n            count += imageTexel.w;\n        }\n        ix /= weight;\n        iy /= weight;\n        weight /= count;\n\n        /* We use the third vector to bitpack an additional 4 bits per coordinate to get resolutions upto 4096*4096\n         * with single pixel precision */\n        gl_FragColor = vec4(\n            mod(floor(ix), 256.0) / 255.0,\n            mod(floor(iy), 256.0) / 255.0,\n            (floor(ix/256.0) + floor(iy/256.0) * 16.0)/255.0,\n            count/255.0\n        );\n    }\n';
+	var voronoiVertexShader = '\n    attribute vec3 vertexPosition;\n    uniform mat4 modelViewMatrix;\n    void main(void) {\n        gl_Position =  modelViewMatrix * vec4(vertexPosition, 1.0);\n    }\n';
 
 	var voronoiFragmentShader = '\n    precision mediump float;\n    uniform vec3 vertexColor;\n    void main(void) { \n        gl_FragColor =  vec4(vertexColor, 1.0);\n    }\n';
 
 	var finalOutputFragmentShader = '\n    precision mediump float;\n    uniform vec3 vertexColor;\n    void main(void) { \n        gl_FragColor =  vec4(vertexColor, 1.0);\n    }\n';
 
-	var finalOutputVertexShader = '\n    attribute vec3 vertexPosition;\n    uniform mat4 orthoMatrix;\n    uniform mat4 modelViewMatrix;\n    void main(void) {\n        gl_Position = orthoMatrix * modelViewMatrix * vec4(vertexPosition, 1.0);\n    }\n';
+	var finalOutputVertexShader = '\n    attribute vec3 vertexPosition;\n    uniform mat4 modelViewMatrix;\n    void main(void) {\n        gl_Position =  modelViewMatrix * vec4(vertexPosition, 1.0);\n    }\n';
 
 	/**
 	 * Utility for generating offscreen Voroni Diagrams
@@ -100,7 +100,7 @@
 	        key: '_onReady',
 	        value: function _onReady() {
 	            this._enableExtensions();
-	            this.testData();
+	            this._genInitialData();
 	            this._initGL();
 	            this.tick();
 	        }
@@ -150,7 +150,6 @@
 
 	            /* Bind data*/
 	            this._bindDataToBuffers();
-	            this._bindDataToUniforms();
 
 	            /* Setup Textures */
 	            this._initImageAsTexture();
@@ -359,14 +358,17 @@
 	        value: function _createCone(x, y, edges) {
 	            var pi = Math.PI;
 	            var vertices = new Array(edges * (3 + 2));
+
+	            /* Center of cone */
 	            vertices[0] = x;
 	            vertices[1] = y;
-	            vertices[2] = 2;
+	            vertices[2] = -1;
+
 	            for (var i = 1; i <= edges + 2; i++) {
 	                var ratio = i / edges;
 	                vertices[i * 3] = x + Math.sin(2 * pi * ratio);
 	                vertices[i * 3 + 1] = y + Math.cos(2 * pi * ratio);
-	                vertices[i * 3 + 2] = 1;
+	                vertices[i * 3 + 2] = -0.5;
 	            }
 	            return vertices;
 	        }
@@ -397,22 +399,18 @@
 	    }, {
 	        key: '_getUniformLocations',
 	        value: function _getUniformLocations() {
-	            this.centroid.uniforms.orthoMatrix = this.gl.getUniformLocation(this.centroid.shaderProgram, "orthoMatrix");
 	            this.centroid.uniforms.modelViewMatrix = this.gl.getUniformLocation(this.centroid.shaderProgram, "modelViewMatrix");
 	            this.centroid.uniforms.imageSampler = this.gl.getUniformLocation(this.centroid.shaderProgram, "imageSampler");
 	            this.centroid.uniforms.voronoiSampler = this.gl.getUniformLocation(this.centroid.shaderProgram, "voronoiSampler");
 	            this.centroid.uniforms.windowDimensions = this.gl.getUniformLocation(this.centroid.shaderProgram, "windowDimensions");
 
-	            this.output.uniforms.orthoMatrix = this.gl.getUniformLocation(this.output.shaderProgram, "orthoMatrix");
 	            this.output.uniforms.modelViewMatrix = this.gl.getUniformLocation(this.output.shaderProgram, "modelViewMatrix");
 	            this.output.uniforms.intermediateSampler = this.gl.getUniformLocation(this.output.shaderProgram, "intermediateSampler");
 	            this.output.uniforms.windowDimensions = this.gl.getUniformLocation(this.output.shaderProgram, "windowDimensions");
 
-	            this.voronoi.uniforms.orthoMatrix = this.gl.getUniformLocation(this.voronoi.shaderProgram, "orthoMatrix");
 	            this.voronoi.uniforms.modelViewMatrix = this.gl.getUniformLocation(this.voronoi.shaderProgram, "modelViewMatrix");
 	            this.voronoi.uniforms.vertexColor = this.gl.getUniformLocation(this.voronoi.shaderProgram, "vertexColor");
 
-	            this.finalOutput.uniforms.orthoMatrix = this.gl.getUniformLocation(this.finalOutput.shaderProgram, "orthoMatrix");
 	            this.finalOutput.uniforms.modelViewMatrix = this.gl.getUniformLocation(this.finalOutput.shaderProgram, "modelViewMatrix");
 	            this.finalOutput.uniforms.vertexColor = this.gl.getUniformLocation(this.finalOutput.shaderProgram, "vertexColor");
 	        }
@@ -445,39 +443,6 @@
 	            var coneVertices = this._createCone(0, 0, this.coneResolution);
 	            this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array(coneVertices), this.gl.STATIC_DRAW);
 	        }
-
-	        /**
-	         * Inserts needed matrices into uniforms
-	         */
-
-	    }, {
-	        key: '_bindDataToUniforms',
-	        value: function _bindDataToUniforms() {
-	            /* Centroid Program */
-	            this.gl.useProgram(this.centroid.shaderProgram);
-
-	            var centroidOrthoMatrix = _glMatrix.mat4.create();
-	            _glMatrix.mat4.ortho(centroidOrthoMatrix, -1, 1, -1, 1, 0.001, 100);
-	            this.gl.uniformMatrix4fv(this.centroid.uniforms.orthoMatrix, false, centroidOrthoMatrix);
-
-	            /* Output program */
-	            this.gl.useProgram(this.output.shaderProgram);
-	            var outputOrthoMatrix = _glMatrix.mat4.create();
-	            _glMatrix.mat4.ortho(outputOrthoMatrix, -1, 1, -1, 1, 0.001, 100);
-	            this.gl.uniformMatrix4fv(this.output.uniforms.orthoMatrix, false, outputOrthoMatrix);
-
-	            /* Voronoi Generator */
-	            this.gl.useProgram(this.voronoi.shaderProgram);
-	            var voronoiOrthoMatrix = _glMatrix.mat4.create();
-	            _glMatrix.mat4.ortho(voronoiOrthoMatrix, 0, this.inputImage.width, 0, this.inputImage.height, -100, 100);
-	            this.gl.uniformMatrix4fv(this.voronoi.uniforms.orthoMatrix, false, voronoiOrthoMatrix);
-
-	            /* Voronoi Generator */
-	            this.gl.useProgram(this.finalOutput.shaderProgram);
-	            var finalOutputOrthoMatrix = _glMatrix.mat4.create();
-	            _glMatrix.mat4.ortho(finalOutputOrthoMatrix, 0, this.inputImage.width, 0, this.inputImage.height, -100, 100);
-	            this.gl.uniformMatrix4fv(this.finalOutput.uniforms.orthoMatrix, false, finalOutputOrthoMatrix);
-	        }
 	    }, {
 	        key: 'tick',
 	        value: function tick() {
@@ -491,6 +456,8 @@
 	                });
 	                this.render();
 	                this._updatePointsFromCurrentFramebuffer();
+
+	                /* Render voronoi as we go */
 	                this._renderVoronoi(null);
 	                this._debugRenderVoronoiCenters();
 	            } else {
@@ -508,26 +475,21 @@
 	            var pixels = new Uint8Array(this.samples * 4);
 	            var imgd = this.gl.readPixels(0, 0, this.samples, 1, this.gl.RGBA, this.gl.UNSIGNED_BYTE, pixels);
 	            var sumweight = 0;
-	            for (var i = 0; i < this.samples; i++) {
+	            for (var i = 0; i < this.samples + 1; i++) {
 	                var point = this.points[i];
 	                var extraBits = pixels[i * 4 + 2];
-	                var yExpansion = pixels[i * 4 + 3];
-	                sumweight += yExpansion;
-	                //console.log('x', point.x);
-	                //console.log('y', point.y);
-	                //console.log('weight', yExpansion * 4);
-	                var newX = pixels[i * 4];
-	                var newY = pixels[i * 4 + 1];
-	                this.points[i] = { x: newX, y: newY, weight: 100 };
+	                var weight = pixels[i * 4 + 3];
+	                var newX = pixels[i * 4] + extraBits % 16 * 256;
+	                var newY = pixels[i * 4 + 1] + (extraBits >> 4) * 256;
+	                this.points[i] = { x: newX, y: newY, weight: weight };
 	            }
-	            console.log(sumweight);
 	        }
 
 	        /* Generates intial data with rejection sampling */
 
 	    }, {
-	        key: 'testData',
-	        value: function testData() {
+	        key: '_genInitialData',
+	        value: function _genInitialData() {
 	            this.points = [];
 	            /* Use temporary canvas to load image to get luminesence values.*/
 	            var tempCanvas = document.createElement('canvas');
@@ -551,7 +513,7 @@
 	        }
 
 	        /**
-	         * Encodes an int as a float in range [0-16581374].
+	         * Encodes an int as a OpenGL formatted float.
 	         * @param {Number} i Must be a whole number
 	         * @return {Float32Array} A 3 dimensional array representing i
 	        */
@@ -583,16 +545,15 @@
 	            this.gl.vertexAttribPointer(this.finalOutput.attributes.vertexPosition, 3, this.gl.FLOAT, false, 0, 0);
 
 	            var ct = 0;
-	            /* Draw a cone for each point*/
+
+	            this.gl.uniform3fv(this.finalOutput.uniforms.vertexColor, new Float32Array([0.0, 0.0, 0.0]));
 	            this.points.forEach(function (point, idx) {
 	                /* Setup model view matrix for next voroni point */
 	                var modelViewMatrix = _glMatrix.mat4.create();
 	                var dimension = Math.max(_this4.inputImage.width, _this4.inputImage.height);
-	                _glMatrix.mat4.translate(modelViewMatrix, modelViewMatrix, [point.x, point.y, 0]);
-	                _glMatrix.mat4.scale(modelViewMatrix, modelViewMatrix, [1.0, 1.0, 1.0]);
+	                _glMatrix.mat4.translate(modelViewMatrix, modelViewMatrix, [point.x / _this4.inputImage.width * 2 - 1, point.y / _this4.inputImage.height * 2 - 1, 0]);
+	                _glMatrix.mat4.scale(modelViewMatrix, modelViewMatrix, [2 / _this4.inputImage.width, 2 / _this4.inputImage.height, 1.0]);
 	                _this4.gl.uniformMatrix4fv(_this4.finalOutput.uniforms.modelViewMatrix, false, modelViewMatrix);
-	                _this4.gl.uniformMatrix4fv(_this4.finalOutput.uniforms.modelViewMatrix, false, modelViewMatrix);
-	                _this4.gl.uniform3fv(_this4.finalOutput.uniforms.vertexColor, new Float32Array([0.0, 0.0, 0.0]));
 	                _this4.gl.drawArrays(_this4.gl.TRIANGLE_FAN, 0, _this4.coneResolution + 2);
 	            });
 
@@ -621,9 +582,7 @@
 	            this.points.forEach(function (point, idx) {
 	                /* Setup model view matrix for next voroni point */
 	                var modelViewMatrix = _glMatrix.mat4.create();
-	                var dimension = Math.max(_this5.inputImage.width, _this5.inputImage.height);
-	                _glMatrix.mat4.translate(modelViewMatrix, modelViewMatrix, [point.x, point.y, 0]);
-	                _glMatrix.mat4.scale(modelViewMatrix, modelViewMatrix, [dimension, dimension, 1.0]);
+	                _glMatrix.mat4.translate(modelViewMatrix, modelViewMatrix, [point.x / _this5.inputImage.width * 2 - 1, point.y / _this5.inputImage.height * 2 - 1, 0]);
 	                _this5.gl.uniformMatrix4fv(_this5.voronoi.uniforms.modelViewMatrix, false, modelViewMatrix);
 	                var indexEncodedAsRGB = _this5._encodeIntToRGB(idx);
 	                _this5.gl.uniform3fv(_this5.voronoi.uniforms.vertexColor, indexEncodedAsRGB);
@@ -643,15 +602,15 @@
 	            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.conePositionBuffer);
 	            this.gl.vertexAttribPointer(this.voronoi.attributes.vertexPosition, 3, this.gl.FLOAT, false, 0, 0);
 
+	            this.gl.uniform3f(this.voronoi.uniforms.vertexColor, 1.0, 1.0, 1.0);
 	            /* Draw a cone for each point*/
 	            this.points.forEach(function (point) {
-	                /* Setup model view matrix for next voroni point */
 	                var modelViewMatrix = _glMatrix.mat4.create();
-	                var dimension = Math.max(_this6.inputImage.width, _this6.inputImage.height);
-	                _glMatrix.mat4.translate(modelViewMatrix, modelViewMatrix, [point.x, point.y, 0]);
-	                _glMatrix.mat4.scale(modelViewMatrix, modelViewMatrix, [1.0, 1.0, 1.0]);
+	                _glMatrix.mat4.translate(modelViewMatrix, modelViewMatrix, [point.x / _this6.inputImage.width * 2 - 1, point.y / _this6.inputImage.height * 2 - 1, 0]);
+	                _glMatrix.mat4.scale(modelViewMatrix, modelViewMatrix, [2 / _this6.inputImage.width, 2 / _this6.inputImage.height, 1.0]);
+
 	                _this6.gl.uniformMatrix4fv(_this6.voronoi.uniforms.modelViewMatrix, false, modelViewMatrix);
-	                _this6.gl.uniform3f(_this6.voronoi.uniforms.vertexColor, 1.0, 1.0, 1.0);
+	                _this6.gl.uniformMatrix4fv(_this6.voronoi.uniforms.modelViewMatrix, false, modelViewMatrix);
 	                _this6.gl.drawArrays(_this6.gl.TRIANGLE_FAN, 0, _this6.coneResolution + 2);
 	            });
 	        }
