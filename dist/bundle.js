@@ -68,7 +68,7 @@
 
 	var centroidFragmentShader = '\n    precision highp float;\n    \n    uniform sampler2D imageSampler;\n    uniform sampler2D voronoiSampler;\n    uniform vec2 windowDimensions;\n\n    const float max_samples = 50000.0;\n\n      void main(void) { \n        // Index of Voronoi cell being searched for\n        int thisIndex = int(gl_FragCoord.x);\n        gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);\n\n        for(float x = 0.0; x < max_samples ; x++){\n            if(x >= windowDimensions.x){\n                break;\n            }\n            vec2 textureCoord = vec2((x + 0.5) / windowDimensions.x, gl_FragCoord.y / windowDimensions.y);\n            vec4 voronoiTexel = texture2D(voronoiSampler, textureCoord);\n\n            int currentVoronoiIndex = int(255.0 * (voronoiTexel.x + (voronoiTexel.y * 256.0) + (voronoiTexel.z * 65536.0)));\n\n            if(currentVoronoiIndex == thisIndex){\n                vec4 imageTexel = texture2D(imageSampler, textureCoord);\n                float weight = 1.0 - 0.299* imageTexel.x - 0.587 * imageTexel.y - 0.114 * imageTexel.z;\n                weight = 0.01 + weight * 0.99; // give minum weight to avoid divide by zero\n                weight = 1.0; // For debugging, if we set weight to 1.0 it should spread out evenly\n\n                gl_FragColor.x += (x + 0.5) * weight;\n                gl_FragColor.y += (gl_FragCoord.y) * weight;\n                gl_FragColor.z += weight;\n                gl_FragColor.w += 1.0;\n            }\n        }\n    }\n';
 
-	var outputFragmentShader = '\n    precision highp float;\n    uniform sampler2D intermediateSampler;\n    uniform vec2 windowDimensions;\n\n    const float max_height = 100000.0;\n\n    void main(void) {\n        float weight = 0.0;\n        float count = 0.0;\n\n        /* Accumulate summing over columns */\n        float ix = 0.0;\n        float iy = 0.0;\n\n        for(float y = 0.0; y < max_height; y++){\n            if(y >= windowDimensions.y){\n                break;\n            }\n\n            vec2 texCoord = vec2(gl_FragCoord.x/windowDimensions.x, (y + 0.5) / windowDimensions.y);\n            vec4 imageTexel = texture2D(intermediateSampler, texCoord );\n\n            ix += imageTexel.x;\n            iy += imageTexel.y;\n            weight += imageTexel.z; \n            count += imageTexel.w;\n        }\n        ix /= weight;\n        iy /= weight;\n        weight /= count;\n\n        /* We use the third vector to bitpack an additional 4 bits per coordinate to get resolutions upto 4096*4096\n         * with single pixel precision */\n        gl_FragColor = vec4(\n            mod(floor(ix), 256.0) / 255.0,\n            mod(floor(iy), 256.0) / 255.0,\n            (floor(ix/256.0) + floor(iy/256.0) * 16.0)/255.0,\n            count/255.0\n        );\n    }\n';
+	var outputFragmentShader = '\n    precision highp float;\n    uniform sampler2D intermediateSampler;\n    uniform vec2 windowDimensions;\n\n    const float max_height = 100000.0;\n\n    void main(void) {\n        float weight = 0.0;\n        float count = 0.0;\n\n        /* Accumulate summing over columns */\n        float ix = 0.0;\n        float iy = 0.0;\n\n        for(float y = 0.0; y < max_height; y++){\n            if(y >= windowDimensions.y){\n                break;\n            }\n\n            vec2 texCoord = vec2(gl_FragCoord.x/windowDimensions.x, (y + 0.5) / windowDimensions.y);\n            vec4 imageTexel = texture2D(intermediateSampler, texCoord );\n\n            ix += imageTexel.x;\n            iy += imageTexel.y;\n            weight += imageTexel.z; \n            count += imageTexel.w;\n        }\n        ix /= weight;\n        iy /= weight;\n        weight /= count;\n\n        /* We use the third vector to bitpack an additional 4 bits per coordinate to get resolutions upto 4096*4096\n         * with single pixel precision */\n        gl_FragColor = vec4(\n            mod(floor(ix), 256.0) / 255.0,\n            mod(floor(iy), 256.0) / 255.0,\n            (floor(ix/256.0) + floor(iy/256.0) * 16.0)/255.0,\n            weight/255.0\n        );\n    }\n';
 	var voronoiVertexShader = '\n    attribute vec3 vertexPosition;\n    uniform mat4 modelViewMatrix;\n    void main(void) {\n        gl_Position =  modelViewMatrix * vec4(vertexPosition, 1.0);\n    }\n';
 
 	var voronoiFragmentShader = '\n    precision mediump float;\n    uniform vec3 vertexColor;\n    void main(void) { \n        gl_FragColor =  vec4(vertexColor, 1.0);\n    }\n';
@@ -459,9 +459,43 @@
 
 	                /* Render voronoi as we go */
 	                this._renderVoronoi(null);
-	                this._debugRenderVoronoiCenters();
+	                this._debugFindCentroidsOnCPU();
+	                //this._debugRenderVoronoiCenters();
 	            } else {
-	                this._drawPointsOntoCanvas();
+	                    //this._drawPointsOntoCanvas();
+	                }
+	        }
+	    }, {
+	        key: '_debugFindCentroidsOnCPU',
+	        value: function _debugFindCentroidsOnCPU() {
+	            if (this.iterations === 1) ;
+	            var pixels = new Uint8Array(this.inputImage.width * this.inputImage.height * 4);
+	            var imgd = this.gl.readPixels(0, 0, this.inputImage.width, this.inputImage.height, this.gl.RGBA, this.gl.UNSIGNED_BYTE, pixels);
+	            var sumweight = 0;
+	            for (var i = 0; i < this.samples; i++) {
+
+	                var sumX = 0;
+	                var sumY = 0;
+	                var ct = 0;
+	                for (var _x = 0; _x < this.inputImage.width; _x++) {
+	                    for (var _y = 0; _y < this.inputImage.height; _y++) {
+	                        var pixelR = pixels[(_x + this.inputImage.height * _y) * 4];
+	                        var pixelG = pixels[(_x + this.inputImage.height * _y) * 4 + 2];
+	                        var pixelB = pixels[(_x + this.inputImage.height * _y) * 4 + 3];
+	                        if (pixelR === i) {
+	                            ct++;
+	                            sumX += _x;
+	                            sumY += _y;
+	                        }
+	                    }
+	                }
+	                if (ct === 0) {
+	                    console.log('zero', x, 'y', y);
+	                }
+	                console.log('x', sumX / ct);
+	                console.log('y', sumY / ct);
+	                console.log(this.points[i].x - sumX / ct);
+	                this.points[i] = { x: sumX / ct, y: sumY / ct, weight: 100 };
 	            }
 	        }
 	    }, {
@@ -475,7 +509,7 @@
 	            var pixels = new Uint8Array(this.samples * 4);
 	            var imgd = this.gl.readPixels(0, 0, this.samples, 1, this.gl.RGBA, this.gl.UNSIGNED_BYTE, pixels);
 	            var sumweight = 0;
-	            for (var i = 0; i < this.samples + 1; i++) {
+	            for (var i = 0; i < this.samples; i++) {
 	                var point = this.points[i];
 	                var extraBits = pixels[i * 4 + 2];
 	                var weight = pixels[i * 4 + 3];
@@ -501,12 +535,12 @@
 	            var imageData = ctx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
 	            var i = 0;
 	            while (i < this.samples) {
-	                var x = Math.random() * this.inputImage.width;
-	                var y = Math.random() * this.inputImage.height;
-	                var index = x * 4 + y * tempCanvas.width * 4;
-	                var red = imageData.data[Math.floor(x) * 4 + Math.floor(y) * tempCanvas.width * 4];
+	                var _x2 = Math.random() * this.inputImage.width;
+	                var _y2 = Math.random() * this.inputImage.height;
+	                var index = _x2 * 4 + _y2 * tempCanvas.width * 4;
+	                var red = imageData.data[Math.floor(_x2) * 4 + Math.floor(_y2) * tempCanvas.width * 4];
 	                if (Math.random() * 256 > red) {
-	                    this.points.push({ x: x, y: y, weight: 1 });
+	                    this.points.push({ x: _x2, y: _y2, weight: 1 });
 	                    i++;
 	                }
 	            }

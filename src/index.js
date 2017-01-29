@@ -88,7 +88,7 @@ const outputFragmentShader = `
             mod(floor(ix), 256.0) / 255.0,
             mod(floor(iy), 256.0) / 255.0,
             (floor(ix/256.0) + floor(iy/256.0) * 16.0)/255.0,
-            count/255.0
+            weight/255.0
         );
     }
 `
@@ -465,10 +465,44 @@ class VoroniRenderer{
 
             /* Render voronoi as we go */
             this._renderVoronoi(null);
-            this._debugRenderVoronoiCenters();
+            this._debugFindCentroidsOnCPU();
+            //this._debugRenderVoronoiCenters();
         }
         else{
-            this._drawPointsOntoCanvas();
+            //this._drawPointsOntoCanvas();
+        }
+    }
+
+    _debugFindCentroidsOnCPU(){
+        if(this.iterations === 1);
+        const pixels = new Uint8Array(this.inputImage.width * this.inputImage.height * 4);
+        const imgd = this.gl.readPixels(0, 0, this.inputImage.width, this.inputImage.height, this.gl.RGBA, this.gl.UNSIGNED_BYTE, pixels);
+        let sumweight = 0;
+        for(let i = 0; i < this.samples; i++){
+            
+            let sumX = 0;
+            let sumY = 0;
+            let ct = 0;
+            for (let x = 0; x < this.inputImage.width; x++){
+                for (let y = 0; y < this.inputImage.height; y++){
+                    const pixelR = pixels[(x + this.inputImage.height * y) * 4];
+                    const pixelG = pixels[(x + this.inputImage.height * y)*4+2];
+                    const pixelB = pixels[(x + this.inputImage.height * y)*4+3];
+                    if(pixelR === i){
+                        ct ++;
+                        sumX += x;
+                        sumY += y;
+                    }
+                }   
+            }
+            if(ct === 0){
+                console.log('zero', x, 'y', y)
+            }
+            console.log('x', sumX / ct);
+            console.log('y', sumY / ct);
+            console.log(this.points[i].x - sumX/ct);
+            this.points[i] = {x: sumX / ct, y: sumY / ct, weight: 100};
+
         }
     }
 
@@ -480,7 +514,7 @@ class VoroniRenderer{
         const pixels = new Uint8Array(this.samples * 4);
         const imgd = this.gl.readPixels(0, 0, this.samples, 1, this.gl.RGBA, this.gl.UNSIGNED_BYTE, pixels);
         let sumweight = 0;
-        for(let i = 0; i < this.samples + 1; i++){
+        for(let i = 0; i < this.samples; i++){
             const point = this.points[i];
             const extraBits = pixels[i*4+2];
             const weight = pixels[i*4+3];
