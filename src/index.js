@@ -37,16 +37,10 @@ const centroidFragmentShader = `
             int i = int(255.0 * (voronoiTexel.x + (voronoiTexel.y * 256.0) + (voronoiTexel.z * 65536.0)));
 
             if(myIndex == i){
-<<<<<<< HEAD
                 vec4 imageTexel = texture2D(imageSampler, textureCoord);
                 float weight = 1.0 - 0.299* imageTexel.x - 0.587 * imageTexel.y - 0.114 * imageTexel.z;
                 //weight = 0.01 + weight * 0.99;
                 weight = 1.0;
-=======
-                vec4 imageTexel = texture2D(imageSampler, coord);
-                float weight = 1.0 - 0.299* imageTexel.x - 0.587 * imageTexel.y - 0.114 * imageTexel.z;
-                weight = 0.01 + weight * 0.99;
->>>>>>> master
 
                 color.x += (x + 0.5) * weight;
                 color.y += (gl_FragCoord.y) * weight;
@@ -95,13 +89,8 @@ const outputFragmentShader = `
         gl_FragColor = vec4(
             mod(floor(ix), 256.0) / 255.0,
             mod(floor(iy), 256.0) / 255.0,
-<<<<<<< HEAD
             (floor(ix/256.0) + floor(iy/256.0) * 16.0)/255.0,
             count/255.0
-=======
-            (floor(ix/256.0) * 16.0 + mod(floor(ix * 16.0), 16.0) ) / 255.0,
-            (floor(iy/256.0) * 16.0 + mod(floor(iy * 16.0), 16.0) ) / 255.0
->>>>>>> master
         );
     }
 `
@@ -227,7 +216,7 @@ class VoroniRenderer{
         this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
         this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
         this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
-        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.inputImage.width * 2, this.inputImage.height * 2, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, null);
+        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.inputImage.width, this.inputImage.height, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, null);
         
         this.frameBuffers.voronoi = this.gl.createFramebuffer();
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.frameBuffers.voronoi);
@@ -236,7 +225,7 @@ class VoroniRenderer{
         /* Voronoi diagram needs a depthbuffer because of how the cone algorithm works */
         const renderbuffer = this.gl.createRenderbuffer();
         this.gl.bindRenderbuffer(this.gl.RENDERBUFFER, renderbuffer);
-        this.gl.renderbufferStorage(this.gl.RENDERBUFFER, this.gl.DEPTH_COMPONENT16, this.inputImage.width *2, this.inputImage.height * 2);
+        this.gl.renderbufferStorage(this.gl.RENDERBUFFER, this.gl.DEPTH_COMPONENT16, this.inputImage.width, this.inputImage.height);
         this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.textures.voronoiTexture, 0);
         this.gl.framebufferRenderbuffer(this.gl.FRAMEBUFFER, this.gl.DEPTH_ATTACHMENT, this.gl.RENDERBUFFER, renderbuffer);
 
@@ -561,7 +550,6 @@ class VoroniRenderer{
     /* Generates intial data with rejection sampling */
     testData(){
         this.points = [];
-
         /* Use temporary canvas to load image to get luminesence values.*/
         const tempCanvas = document.createElement('canvas');
         tempCanvas.width = this.inputImage.width;
@@ -649,7 +637,7 @@ class VoroniRenderer{
 
         /* Render Voronoi to framebuffer */
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, framebuffer);
-        this.gl.viewport(0, 0, this.inputImage.width * 2, this.inputImage.height * 2);
+        this.gl.viewport(0, 0, this.inputImage.width, this.inputImage.height);
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.conePositionBuffer);
         this.gl.vertexAttribPointer(this.voronoi.attributes.vertexPosition, 3, this.gl.FLOAT, false, 0, 0);
 
@@ -719,7 +707,7 @@ class VoroniRenderer{
         this.gl.useProgram(this.centroid.shaderProgram);
 
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.frameBuffers.intermediate);
-        this.gl.viewport(0, 0, this.samples, this.inputImage.height * 2);
+        this.gl.viewport(0, 0, this.samples, this.inputImage.height);
         this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
         
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.quadPositionBuffer);
