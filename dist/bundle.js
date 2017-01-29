@@ -453,16 +453,18 @@
 	            this.iterations--;
 	            if (this.iterations > 0) {
 	                console.log(this.iterations + ' iterations left');
-	                requestAnimationFrame(function () {
-	                    return _this3.tick();
+	                setTimeout(function () {
+	                    return requestAnimationFrame(function () {
+	                        return _this3.tick();
+	                    }, 1000);
 	                });
 	                this.render();
 	                this._updatePointsFromCurrentFramebuffer();
-
 	                /* Render voronoi as we go */
 	                this._renderVoronoi(null);
-	                //this._debugFindCentroidsOnCPU();
-	                this._debugRenderVoronoiCenters();
+	                this._debugRenderVoronoiCenters([0.0, 0.0, 1.0]);
+	                this._debugFindCentroidsOnCPU();
+	                this._debugRenderVoronoiCenters([0.0, 1.0, 0.0]);
 	            } else {
 	                //this._drawPointsOntoCanvas();
 	            }
@@ -511,9 +513,9 @@
 	                var point = this.points[i];
 	                var extraBitsX = pixels[i * 4 + 2];
 	                var extraBitsY = pixels[i * 4 + 3];
-	                var newX = pixels[i * 4] + extraBitsX / 256;
-	                var newY = pixels[i * 4 + 1] + extraBitsY / 256;
-	                this.points[i] = { x: newX, y: newY, weight: 100 };
+	                var centroidX = pixels[i * 4] + extraBitsX / 256;
+	                var centroidY = pixels[i * 4 + 1] + extraBitsY / 256;
+	                this.points[i] = { x: centroidX, y: centroidY, weight: 100 };
 	            }
 	        }
 
@@ -623,7 +625,7 @@
 	        }
 	    }, {
 	        key: '_debugRenderVoronoiCenters',
-	        value: function _debugRenderVoronoiCenters() {
+	        value: function _debugRenderVoronoiCenters(color) {
 	            var _this6 = this;
 
 	            this.gl.useProgram(this.voronoi.shaderProgram);
@@ -634,12 +636,12 @@
 	            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.conePositionBuffer);
 	            this.gl.vertexAttribPointer(this.voronoi.attributes.vertexPosition, 3, this.gl.FLOAT, false, 0, 0);
 
-	            this.gl.uniform3f(this.voronoi.uniforms.vertexColor, 1.0, 1.0, 1.0);
+	            this.gl.uniform3f(this.voronoi.uniforms.vertexColor, color[0], color[1], color[2]);
 	            /* Draw a cone for each point*/
 	            this.points.forEach(function (point) {
 	                var modelViewMatrix = _glMatrix.mat4.create();
 	                _glMatrix.mat4.translate(modelViewMatrix, modelViewMatrix, [point.x / _this6.inputImage.width * 2 - 1, point.y / _this6.inputImage.height * 2 - 1, 0]);
-	                _glMatrix.mat4.scale(modelViewMatrix, modelViewMatrix, [2 / _this6.inputImage.width, 2 / _this6.inputImage.height, 1.0]);
+	                _glMatrix.mat4.scale(modelViewMatrix, modelViewMatrix, [1 / _this6.inputImage.width, 1 / _this6.inputImage.height, 1.0]);
 
 	                _this6.gl.uniformMatrix4fv(_this6.voronoi.uniforms.modelViewMatrix, false, modelViewMatrix);
 	                _this6.gl.uniformMatrix4fv(_this6.voronoi.uniforms.modelViewMatrix, false, modelViewMatrix);
