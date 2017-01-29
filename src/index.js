@@ -73,7 +73,7 @@ const outputFragmentShader = `
                 break;
             }
 
-            vec2 texCoord = vec2(gl_FragCoord.x/windowDimensions.x, (y + 0.5)/windowDimensions.y);
+            vec2 texCoord = vec2(gl_FragCoord.x/windowDimensions.x, (y + 0.5) / windowDimensions.y);
             vec4 imageTexel = texture2D(intermediateSampler, texCoord );
 
             ix += imageTexel.x;
@@ -85,15 +85,12 @@ const outputFragmentShader = `
         iy /= weight;
         weight /= count;
 
-        ix /= 2.0;
-        iy /= 2.0;
-
         /* We use the third vector to bitpack an additional 4 bits per coordinate to get resolutions upto 4096*4096*/
         gl_FragColor = vec4(
             mod(floor(ix), 256.0) / 255.0,
             mod(floor(iy), 256.0) / 255.0,
             (floor(ix/256.0) + floor(iy/256.0) * 16.0)/255.0,
-            count/510.0
+            count/255.0
         );
     }
 `
@@ -177,8 +174,8 @@ class VoroniRenderer{
         }
     }
     _initGL(){
-        this.canvas.width = Math.max(this.inputImage.width * 2, this.samples);
-        this.canvas.height = this.inputImage.height * 2;
+        this.canvas.width = Math.max(this.inputImage.width, this.samples);
+        this.canvas.height = this.inputImage.height;
 
         this._initShaders();
 
@@ -219,7 +216,7 @@ class VoroniRenderer{
         this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
         this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
         this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
-        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.inputImage.width * 2, this.inputImage.height * 2, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, null);
+        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.inputImage.width, this.inputImage.height, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, null);
         
         this.frameBuffers.voronoi = this.gl.createFramebuffer();
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.frameBuffers.voronoi);
@@ -228,7 +225,7 @@ class VoroniRenderer{
         /* Voronoi diagram needs a depthbuffer because of how the cone algorithm works */
         const renderbuffer = this.gl.createRenderbuffer();
         this.gl.bindRenderbuffer(this.gl.RENDERBUFFER, renderbuffer);
-        this.gl.renderbufferStorage(this.gl.RENDERBUFFER, this.gl.DEPTH_COMPONENT16, this.inputImage.width * 2, this.inputImage.height * 2);
+        this.gl.renderbufferStorage(this.gl.RENDERBUFFER, this.gl.DEPTH_COMPONENT16, this.inputImage.width, this.inputImage.height);
         this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.textures.voronoiTexture, 0);
         this.gl.framebufferRenderbuffer(this.gl.FRAMEBUFFER, this.gl.DEPTH_ATTACHMENT, this.gl.RENDERBUFFER, renderbuffer);
 
@@ -240,7 +237,7 @@ class VoroniRenderer{
         this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
         this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
         this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
-        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.samples, this.inputImage.height * 2, 0, this.gl.RGBA, this.gl.FLOAT, null);
+        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.samples, this.inputImage.height, 0, this.gl.RGBA, this.gl.FLOAT, null);
         
         this.frameBuffers.intermediate = this.gl.createFramebuffer();
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.frameBuffers.intermediate);
@@ -391,16 +388,15 @@ class VoroniRenderer{
         const vertices = new Array(edges*(3+2));
         vertices[0] = x;
         vertices[1] = y;
-        vertices[2] = -3;
+        vertices[2] = 2;
         for(let i = 1 ; i <= edges+2; i++){
             const ratio = i/edges;
-            vertices[i*3] = 3 * (x + Math.sin(2 * pi * ratio));
-            vertices[i*3+1] = 3 * (y + Math.cos(2 * pi * ratio));
-            vertices[i*3+2] = -5;
+            vertices[i*3] = (x + Math.sin(2 * pi * ratio));
+            vertices[i*3+1] = (y + Math.cos(2 * pi * ratio));
+            vertices[i*3+2] = 1;
         }
         return vertices;
     }
-
     /**
      * Inserts attribute locations into this.centroid.attributes
      */
@@ -494,7 +490,7 @@ class VoroniRenderer{
         /* Voronoi Generator */
         this.gl.useProgram(this.voronoi.shaderProgram);
         const voronoiOrthoMatrix = mat4.create();
-        mat4.ortho(voronoiOrthoMatrix, -1, 1, -1, 1, 0.001, 100);  
+        mat4.ortho(voronoiOrthoMatrix, 0, this.inputImage.width, 0, this.inputImage.height, -100, 100);  
         this.gl.uniformMatrix4fv(
             this.voronoi.uniforms.orthoMatrix,
             false,
@@ -504,7 +500,7 @@ class VoroniRenderer{
         /* Voronoi Generator */
         this.gl.useProgram(this.finalOutput.shaderProgram);
         const finalOutputOrthoMatrix = mat4.create();
-        mat4.ortho(finalOutputOrthoMatrix, 0, this.inputImage.width,  this.inputImage.height, 0, 0.001, 100);  
+        mat4.ortho(finalOutputOrthoMatrix, 0, this.inputImage.width, 0, this.inputImage.height, -100, 100);  
         this.gl.uniformMatrix4fv(
             this.finalOutput.uniforms.orthoMatrix,
             false,
@@ -607,27 +603,29 @@ class VoroniRenderer{
         this.points.forEach((point, idx) => {
             /* Setup model view matrix for next voroni point */
             const modelViewMatrix = mat4.create();
+            const dimension = Math.max(this.inputImage.width, this.inputImage.height);
             mat4.translate(
                 modelViewMatrix,
                 modelViewMatrix,
-                [point.x, point.y, 0.0]
+                [point.x, point.y, 0]
             );
-            if(point.weight > 10){
-                const scalingFactor = (point.weight / 200);
-                //const scalingFactor = 0.4 + 0.01*(point.weight / 255);;
-                mat4.scale(
-                    modelViewMatrix,
-                    modelViewMatrix,
-                    [scalingFactor, scalingFactor, scalingFactor]
-                );
-                this.gl.uniformMatrix4fv(
-                    this.finalOutput.uniforms.modelViewMatrix,
-                    false,
-                    modelViewMatrix
-                );
-                this.gl.uniform3fv(this.finalOutput.uniforms.vertexColor, new Float32Array([0.0, 0.0, 0.0]));
-                this.gl.drawArrays(this.gl.TRIANGLE_FAN, 0, this.coneResolution+2);
-            }
+             mat4.scale(
+                modelViewMatrix,
+                modelViewMatrix,
+                [1.0, 1.0, 1.0]
+            );
+            this.gl.uniformMatrix4fv(
+                this.finalOutput.uniforms.modelViewMatrix,
+                false,
+                modelViewMatrix
+            );
+            this.gl.uniformMatrix4fv(
+                this.finalOutput.uniforms.modelViewMatrix,
+                false,
+                modelViewMatrix
+            );
+            this.gl.uniform3fv(this.finalOutput.uniforms.vertexColor, new Float32Array([0.0, 0.0, 0.0]));
+            this.gl.drawArrays(this.gl.TRIANGLE_FAN, 0, this.coneResolution+2);
         });
 
         this.gl.clearColor(0.0, 0.0, 0.0, 1.0);
@@ -642,7 +640,7 @@ class VoroniRenderer{
 
         /* Render Voronoi to framebuffer */
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, framebuffer);
-        this.gl.viewport(0, 0, this.inputImage.width * 2, this.inputImage.height * 2);
+        this.gl.viewport(0, 0, this.inputImage.width, this.inputImage.height);
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.conePositionBuffer);
         this.gl.vertexAttribPointer(this.voronoi.attributes.vertexPosition, 3, this.gl.FLOAT, false, 0, 0);
 
@@ -650,10 +648,16 @@ class VoroniRenderer{
         this.points.forEach((point, idx) => {
             /* Setup model view matrix for next voroni point */
             const modelViewMatrix = mat4.create();
+            const dimension = Math.max(this.inputImage.width, this.inputImage.height);
             mat4.translate(
                 modelViewMatrix,
                 modelViewMatrix,
-                [point.x/this.inputImage.width*2-1, point.y/this.inputImage.height*2-1, 0.0]
+                [point.x, point.y, 0]
+            );
+             mat4.scale(
+                modelViewMatrix,
+                modelViewMatrix,
+                [dimension, dimension, 1.0]
             );
             this.gl.uniformMatrix4fv(
                 this.voronoi.uniforms.modelViewMatrix,
@@ -671,7 +675,7 @@ class VoroniRenderer{
         this.gl.clear(this.gl.DEPTH_BUFFER_BIT);
 
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
-        this.gl.viewport(0, 0, this.inputImage.width * 2, this.inputImage.height * 2);
+        this.gl.viewport(0, 0, this.inputImage.width, this.inputImage.height);
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.conePositionBuffer);
         this.gl.vertexAttribPointer(this.voronoi.attributes.vertexPosition, 3, this.gl.FLOAT, false, 0, 0);
 
@@ -679,15 +683,16 @@ class VoroniRenderer{
         this.points.forEach((point) => {
             /* Setup model view matrix for next voroni point */
             const modelViewMatrix = mat4.create();
+            const dimension = Math.max(this.inputImage.width, this.inputImage.height);
             mat4.translate(
                 modelViewMatrix,
                 modelViewMatrix,
-                [point.x/this.inputImage.width*2-1, point.y/this.inputImage.height*2-1, 0.0]
+                [point.x, point.y, 0]
             );
-            mat4.scale(
+             mat4.scale(
                 modelViewMatrix,
                 modelViewMatrix,
-                [0.001, 0.001, 0.001]
+                [1.0, 1.0, 1.0]
             );
             this.gl.uniformMatrix4fv(
                 this.voronoi.uniforms.modelViewMatrix,
@@ -721,7 +726,7 @@ class VoroniRenderer{
         );
         this.gl.uniform2fv(
             this.centroid.uniforms.windowDimensions,
-            new Float32Array([this.inputImage.width * 2, this.inputImage.height * 2])
+            new Float32Array([this.inputImage.width, this.inputImage.height])
         );
 
         /* Setup Texture Samplers */
@@ -750,7 +755,7 @@ class VoroniRenderer{
         );
         this.gl.uniform2fv(
             this.output.uniforms.windowDimensions,
-            new Float32Array([this.samples, this.inputImage.height * 2])
+            new Float32Array([this.samples, this.inputImage.height])
         );
 
         /* Setup Texture Samplers */
