@@ -66,9 +66,9 @@
 	/* Credits to Matt Keeter for this approach https://www.mattkeeter.com/projects/swingline/ */
 	var centroidVertexShader = '\n    attribute vec3 vertexPosition;\n\n    uniform mat4 modelViewMatrix;\n\n    void main(void) {\n        gl_Position =  modelViewMatrix * vec4(vertexPosition, 1.0);\n    }\n';
 
-	var centroidFragmentShader = '\n    precision highp float;\n    \n    uniform sampler2D imageSampler;\n    uniform sampler2D voronoiSampler;\n    uniform vec2 windowDimensions;\n\n    const float max_samples = 50000.0;\n\n      void main(void) { \n        // Index of Voronoi cell being searched for\n        int thisIndex = int(gl_FragCoord.x);\n        gl_FragColor = vec4(0.0, 0.0, 0.0, 0.0);\n\n        for(float x = 0.0; x < max_samples ; x++){\n            if(x >= windowDimensions.x){\n                break;\n            }\n            vec2 textureCoord = vec2((x + 0.5) / windowDimensions.x, gl_FragCoord.y / windowDimensions.y);\n            vec4 voronoiTexel = texture2D(voronoiSampler, textureCoord);\n\n            int currentVoronoiIndex = int(255.0 * (voronoiTexel.x + (voronoiTexel.y * 256.0) + (voronoiTexel.z * 65536.0)));\n\n            if(currentVoronoiIndex == thisIndex){\n                vec4 imageTexel = texture2D(imageSampler, textureCoord);\n                float weight = 1.0 - 0.299* imageTexel.x - 0.587 * imageTexel.y - 0.114 * imageTexel.z;\n                weight = 0.01 + weight * 0.99; // give minum weight to avoid divide by zero\n                weight = 1.0; // For debugging, if we set weight to 1.0 it should spread out evenly\n\n                gl_FragColor.x += (x) * weight;\n                gl_FragColor.y += (gl_FragCoord.y - 0.5) * weight;\n                gl_FragColor.z += weight;\n                gl_FragColor.w += 1.0;\n            }\n        }\n    }\n';
+	var centroidFragmentShader = '#version 300 es\n    precision highp float;\n    \n    uniform sampler2D imageSampler;\n    uniform sampler2D voronoiSampler;\n    uniform vec2 windowDimensions;\n\n    out vec4 sum;\n\n    const float max_samples = 50000.0;\n\n      void main(void) { \n        // GLES3.0 is missing layout qualifiers for rounded down fragcoord so round down manually\n        vec4 screen_coords = vec4(floor(gl_FragCoord.x), floor(gl_FragCoord.y), floor(gl_FragCoord.z), floor(gl_FragCoord.w));\n        \n        // Index of Voronoi cell being searched for\n        int thisIndex = int(gl_FragCoord.x);\n\n        ivec2 texSize = textureSize(voronoiSampler, 0);\n        sum = vec4(0.0, 0.0, 0.0, 0.0);\n\n        for(int x = 0; x < texSize.x ; x++){\n            ivec2 texCoord = ivec2(x, gl_FragCoord.y);\n            vec4 voronoiTexel = texelFetch(voronoiSampler, texCoord, 0);\n\n            int currentVoronoiIndex = int(255.0 * (voronoiTexel.x + (voronoiTexel.y * 256.0) + (voronoiTexel.z * 65536.0)));\n\n            if(currentVoronoiIndex == thisIndex){\n                vec4 imageTexel = texelFetch(imageSampler, texCoord, 0);\n                float weight = 1.0 - 0.299* imageTexel.x - 0.587 * imageTexel.y - 0.114 * imageTexel.z;\n                weight = 0.01 + weight * 0.99; // give minum weight to avoid divide by zero\n                weight = 1.0; // For debugging, if we set weight to 1.0 it should spread out evenly\n\n                sum.x += (float(x) + 0.5) * weight;\n                sum.y += (gl_FragCoord.y + 0.5) * weight;\n                sum.z += weight;\n                sum.w += 1.0;\n            }\n        }\n    }\n';
 
-	var outputFragmentShader = '\n    precision highp float;\n    uniform sampler2D intermediateSampler;\n    uniform vec2 windowDimensions;\n    uniform float voronoiUpscaleConstant;\n\n    const float max_height = 100000.0;\n\n    void main(void) {\n        float weight = 0.0;\n        float count = 0.0;\n\n        /* Accumulate summing over columns */\n        float ix = 0.0;\n        float iy = 0.0;\n\n        for(float y = 0.0; y < max_height; y++){\n            if(y >= windowDimensions.y){\n                break;\n            }\n\n            vec2 texCoord = vec2(gl_FragCoord.x/windowDimensions.x, (y + 0.5) / windowDimensions.y);\n            vec4 imageTexel = texture2D(intermediateSampler, texCoord );\n\n            ix += imageTexel.x;\n            iy += imageTexel.y;\n            weight += imageTexel.z; \n            count += imageTexel.w;\n        }\n        ix /= weight;\n        ix /= float(2);\n        iy /= weight;\n        iy /= float(2);\n        weight /= count;\n\n        /* We use the third vector to bitpack an additional 4 bits per coordinate to get resolutions upto 4096*4096\n         * with single pixel precision */\n        gl_FragColor = vec4(\n            mod(floor(ix), 256.0) / 255.0,\n            mod(floor(iy), 256.0) / 255.0,\n            mod(floor(ix * 256.0), 256.0) /255.0,\n            mod(floor(iy * 256.0), 256.0) /255.0\n        );\n    }\n';
+	var outputFragmentShader = '\n    precision highp float;\n    uniform sampler2D intermediateSampler;\n    uniform vec2 windowDimensions;\n    uniform float voronoiUpscaleConstant;\n\n    const float max_height = 100000.0;\n\n    void main(void) {\n        float weight = 0.0;\n        float count = 0.0;\n\n        /* Accumulate summing over columns */\n        float ix = 0.0;\n        float iy = 0.0;\n\n        for(float y = 0.0; y < max_height; y++){\n            if(y >= windowDimensions.y){\n                break;\n            }\n\n            vec2 texCoord = vec2(gl_FragCoord.x/windowDimensions.x, (y + 0.5) / windowDimensions.y);\n            vec4 imageTexel = texture2D(intermediateSampler, texCoord );\n\n            ix += imageTexel.x;\n            iy += imageTexel.y;\n            weight += imageTexel.z; \n            count += imageTexel.w;\n        }\n        ix /= weight;\n        ix /= float(voronoiUpscaleConstant);\n        iy /= weight;\n        iy /= float(voronoiUpscaleConstant);\n        weight /= count;\n\n        /* First vector, first 8 bits of  */\n        gl_FragColor = vec4(\n            (floor(mod(ix, 256.0)) + 0.1) / 255.0,\n            (floor(mod(iy, 256.0)) + 0.1) / 255.0,\n            (floor(mod(ix * 256.0, 256.0)) + 0.1) /255.0,\n            (floor(mod(iy * 256.0, 256.0) + 0.1)) /255.0\n        );\n    }\n';
 	var voronoiVertexShader = '\n    attribute vec3 vertexPosition;\n    uniform mat4 modelViewMatrix;\n    void main(void) {\n        gl_Position =  modelViewMatrix * vec4(vertexPosition, 1.0);\n    }\n';
 
 	var voronoiFragmentShader = '\n    precision mediump float;\n    uniform vec3 vertexColor;\n    void main(void) { \n        gl_FragColor =  vec4(vertexColor, 1.0);\n    }\n';
@@ -115,7 +115,7 @@
 	            this.canvas.width = 0;
 	            this.canvas.height = 1;
 
-	            this.gl = this.canvas.getContext('webgl', { preserveDrawingBuffer: true, antialias: false });
+	            this.gl = this.canvas.getContext('webgl2', { preserveDrawingBuffer: true, antialias: false });
 	            this.textures = {};
 	            this.buffers = {};
 	            this.centroid = { attributes: {}, uniforms: {} };
@@ -131,9 +131,10 @@
 	    }, {
 	        key: '_enableExtensions',
 	        value: function _enableExtensions() {
-	            var float_texture_ext = this.gl.getExtension('OES_texture_float');
+	            // fuck you gpi
+	            var float_texture_ext = this.gl.getExtension('EXT_color_buffer_float');
 	            if (!float_texture_ext) {
-	                console.error("This requires the OES_texture_float extension to operate!");
+	                console.error("This requires the EXT_color_buffer_float extension to operate!");
 	            }
 	        }
 	    }, {
@@ -205,7 +206,7 @@
 	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
 	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
 	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
-	            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.samples, this.inputImage.height * this.voronoiUpscaleConstant, 0, this.gl.RGBA, this.gl.FLOAT, null);
+	            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA32F, this.samples, this.inputImage.height * this.voronoiUpscaleConstant, 0, this.gl.RGBA, this.gl.FLOAT, null);
 
 	            this.frameBuffers.intermediate = this.gl.createFramebuffer();
 	            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.frameBuffers.intermediate);
@@ -293,7 +294,7 @@
 	            this.gl.linkProgram(this.output.shaderProgram);
 
 	            if (!this.gl.getProgramParameter(this.output.shaderProgram, this.gl.LINK_STATUS)) {
-	                console.error("Could not init centroid shaders.");
+	                console.error("Could not init output shaders.");
 	                return null;
 	            }
 	        }
@@ -460,10 +461,14 @@
 	                });
 	                this.render();
 	                this._updatePointsFromCurrentFramebuffer();
+
+	                var savePoints = this.points;
+
 	                /* Render voronoi as we go */
 	                this._renderVoronoi(null);
+	                //this._debugFindCentroidsOnCPU();
 	                this._debugRenderVoronoiCenters([0.0, 0.0, 1.0]);
-	                this._debugFindCentroidsOnCPU();
+	                //this.points = savePoints;
 	                this._debugRenderVoronoiCenters([0.0, 1.0, 0.0]);
 	            } else {
 	                //this._drawPointsOntoCanvas();
@@ -494,7 +499,7 @@
 	                }
 	                //console.log('x', sumX / ct);
 	                //console.log('y', sumY / ct);
-	                //console.log(this.points[i].x - sumX/ct);
+	                console.log(this.points[i].x - sumX / ct / this.voronoiUpscaleConstant);
 	                this.points[i] = { x: sumX / ct / this.voronoiUpscaleConstant, y: sumY / ct / this.voronoiUpscaleConstant, weight: 100 };
 	            }
 	        }
@@ -515,6 +520,8 @@
 	                var extraBitsY = pixels[i * 4 + 3];
 	                var centroidX = pixels[i * 4] + extraBitsX / 256;
 	                var centroidY = pixels[i * 4 + 1] + extraBitsY / 256;
+	                //console.log(centroidX);
+	                //console.log(centroidY);
 	                this.points[i] = { x: centroidX, y: centroidY, weight: 100 };
 	            }
 	        }
