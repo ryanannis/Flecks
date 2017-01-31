@@ -38,7 +38,7 @@ const centroidFragmentShader = `#version 300 es
                 vec4 imageTexel = texelFetch(imageSampler, texCoord, 0);
                 float weight = 1.0 - 0.299* imageTexel.x - 0.587 * imageTexel.y - 0.114 * imageTexel.z;
                 weight = 0.01 + weight * 0.99; // give minum weight to avoid divide by zero
-                //weight = 1.0; // For debugging, if we set weight to 1.0 it should spread out evenly
+                weight = 1.0; // For debugging, if we set weight to 1.0 it should spread out evenly
 
                 sum.x += (float(x) + 0.5) * weight;
                 sum.y += (screen_coords.y + 0.5) * weight;
@@ -96,7 +96,7 @@ const outputVertexShader = `#version 300 es
     }
 `;
 
-/* buggy intel drivers have no default fragment shader for feedback transforms 
+/* intel drivers have no default fragment shader for feedback transforms 
  * http://stackoverflow.com/questions/38712224/is-fragment-shader-necessary-in-intel-hd-graphic-card */
 const blankFragmentShader = `#version 300 es
     precision highp float;
@@ -138,6 +138,8 @@ const voronoiFragmentShader = `#version 300 es
 
 const finalOutputFragmentShader = `#version 300 es
     precision highp float;
+    
+    in vec3 indexAsColor;
     out vec4 outputColor;
 
     void main(void) { 
@@ -150,8 +152,14 @@ const finalOutputVertexShader  = `#version 300 es
     layout (location = 0) in vec2 instancedPosition;
     layout (location = 1) in vec3 vertexPosition;
 
+    out vec3 indexAsColor;
+
     void main(void) {
-        gl_Position = vec4(vertexPosition.xy * 0.005 + instancedPosition, vertexPosition.z * 0.005, 1.0f);
+        gl_Position = vec4(vertexPosition.xy + 0.05 * instancedPosition, vertexPosition.z, 1.0f);
+        indexAsColor = vec3(
+            float(gl_InstanceID % 256) / 255.0f, 
+            float((gl_InstanceID / 256) % 256) /255.0f, 
+            float((gl_InstanceID / 65536) % 256) /255.0f);
     }
 `;
 
@@ -192,11 +200,10 @@ class VoroniRenderer{
         this.output = {attributes: {}, uniforms: {}};
         this.finalOutput = {attributes: {}, uniforms: {}};
         this.frameBuffers = {};
-        this.voronoiUpscaleConstant = 1; //supersampling
+        this.voronoiUpscaleConstant = 10; //supersampling
         this._loadImage(() => this._onReady());
     }
     _enableExtensions(){
-        // fuck you gpi
         const float_texture_ext = this.gl.getExtension('EXT_color_buffer_float');
         if(!float_texture_ext){
             console.error("This requires the EXT_color_buffer_float extension to operate!");
@@ -229,7 +236,7 @@ class VoroniRenderer{
     }
     _loadImage(callback){
         this.inputImage = new Image();
-        this.inputImage.src = "static/a.jpg";
+        this.inputImage.src = "static/cat.jpg";
         this.inputImage.onload = () => {
             this.imageLoaded = true;
             callback();
@@ -253,7 +260,7 @@ class VoroniRenderer{
         /* Voronoi diagram needs a depthbuffer because of how the cone algorithm works */
         const renderbuffer = this.gl.createRenderbuffer();
         this.gl.bindRenderbuffer(this.gl.RENDERBUFFER, renderbuffer);
-        this.gl.renderbufferStorage(this.gl.RENDERBUFFER, this.gl.DEPTH_COMPONENT16, this.inputImage.width * this.voronoiUpscaleConstant, this.inputImage.height * this.voronoiUpscaleConstant);
+        this.gl.renderbufferStorage(this.gl.RENDERBUFFER, this.gl.DEPTH_COMPONENT32F, this.inputImage.width * this.voronoiUpscaleConstant, this.inputImage.height * this.voronoiUpscaleConstant);
         this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.textures.voronoiTexture, 0);
         this.gl.framebufferRenderbuffer(this.gl.FRAMEBUFFER, this.gl.DEPTH_ATTACHMENT, this.gl.RENDERBUFFER, renderbuffer);
 
@@ -527,7 +534,7 @@ class VoroniRenderer{
             const savePoints = this.points;
             
             /* Render voronoi as we go */
-            //this._renderVoronoi(null);
+            this._renderVoronoi(null);
         }
         else{
             this._drawPointsOntoCanvas();
@@ -620,7 +627,6 @@ class VoroniRenderer{
     }
 
     _renderFinalOutput(){
-        this.gl.clearColor(1.0, 1.0, 1.0, 1.0);
         this.gl.useProgram(this.finalOutput.shaderProgram);
         this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
 
