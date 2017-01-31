@@ -2,9 +2,8 @@ import { mat4 } from 'gl-matrix';
 
 
 /* Credits to Matt Keeter for this approach https://www.mattkeeter.com/projects/swingline/ */
-const centroidVertexShader = `
-    attribute vec3 vertexPosition;
-
+const centroidVertexShader = `#version 300 es
+    in vec3 vertexPosition;
     uniform mat4 modelViewMatrix;
 
     void main(void) {
@@ -21,48 +20,51 @@ const centroidFragmentShader = `#version 300 es
 
     out vec4 sum;
 
-    const float max_samples = 50000.0;
-
-      void main(void) { 
+      void main(void) {
         // GLES3.0 is missing layout qualifiers for rounded down fragcoord so round down manually
         vec4 screen_coords = vec4(floor(gl_FragCoord.x), floor(gl_FragCoord.y), floor(gl_FragCoord.z), floor(gl_FragCoord.w));
         
-        // Index of Voronoi cell being searched for
-        int thisIndex = int(gl_FragCoord.x);
-
+        int thisIndex = int(screen_coords.x);
         ivec2 texSize = textureSize(voronoiSampler, 0);
         sum = vec4(0.0, 0.0, 0.0, 0.0);
 
         for(int x = 0; x < texSize.x ; x++){
-            ivec2 texCoord = ivec2(x, gl_FragCoord.y);
+            ivec2 texCoord = ivec2(x, int(screen_coords.y));
             vec4 voronoiTexel = texelFetch(voronoiSampler, texCoord, 0);
 
-            int currentVoronoiIndex = int(255.0 * (voronoiTexel.x + (voronoiTexel.y * 256.0) + (voronoiTexel.z * 65536.0)));
+            int currentVoronoiIndex = int(255.0f * (voronoiTexel.x + (voronoiTexel.y * 256.0f) + (voronoiTexel.z * 65536.0f)));
 
             if(currentVoronoiIndex == thisIndex){
                 vec4 imageTexel = texelFetch(imageSampler, texCoord, 0);
                 float weight = 1.0 - 0.299* imageTexel.x - 0.587 * imageTexel.y - 0.114 * imageTexel.z;
                 weight = 0.01 + weight * 0.99; // give minum weight to avoid divide by zero
-                weight = 1.0; // For debugging, if we set weight to 1.0 it should spread out evenly
+                //weight = 1.0; // For debugging, if we set weight to 1.0 it should spread out evenly
 
                 sum.x += (float(x) + 0.5) * weight;
-                sum.y += (gl_FragCoord.y + 0.5) * weight;
+                sum.y += (screen_coords.y + 0.5) * weight;
                 sum.z += weight;
                 sum.w += 1.0;
             }
         }
+        sum.x /= float(texSize.x);
+        sum.y /= float(texSize.y);
     }
 `;
 
-const outputFragmentShader = `
+const outputVertexShader = `#version 300 es
     precision highp float;
+
     uniform sampler2D intermediateSampler;
     uniform vec2 windowDimensions;
     uniform float voronoiUpscaleConstant;
 
-    const float max_height = 100000.0;
+    in float outputIndex;
+
+    out vec3 centroidPos;
 
     void main(void) {
+        ivec2 texSize = textureSize(intermediateSampler, 0);
+
         float weight = 0.0;
         float count = 0.0;
 
@@ -70,63 +72,86 @@ const outputFragmentShader = `
         float ix = 0.0;
         float iy = 0.0;
 
-        for(float y = 0.0; y < max_height; y++){
-            if(y >= windowDimensions.y){
-                break;
-            }
+        centroidPos = vec3(0.0f, 0.0f, 0.0f);
 
-            vec2 texCoord = vec2(gl_FragCoord.x/windowDimensions.x, (y + 0.5) / windowDimensions.y);
-            vec4 imageTexel = texture2D(intermediateSampler, texCoord );
+        for(int y = 0; y < texSize.y; y++){
+            ivec2 texCoord = ivec2(int(outputIndex), y);
+            vec4 intermediateTexel = texelFetch(intermediateSampler, texCoord, 0);
 
-            ix += imageTexel.x;
-            iy += imageTexel.y;
-            weight += imageTexel.z; 
-            count += imageTexel.w;
+            ix += intermediateTexel.x;
+            iy += intermediateTexel.y;
+            weight += intermediateTexel.z; 
+            count += intermediateTexel.w;
         }
         ix /= weight;
-        ix /= float(voronoiUpscaleConstant);
         iy /= weight;
-        iy /= float(voronoiUpscaleConstant);
         weight /= count;
 
-        /* First vector, first 8 bits of  */
-        gl_FragColor = vec4(
-            (floor(mod(ix, 256.0)) + 0.1) / 255.0,
-            (floor(mod(iy, 256.0)) + 0.1) / 255.0,
-            (floor(mod(ix * 256.0, 256.0)) + 0.1) /255.0,
-            (floor(mod(iy * 256.0, 256.0) + 0.1)) /255.0
+        centroidPos = vec3(
+            ix * 2.0 - 1.0,
+            iy * 2.0 - 1.0,
+            0
         );
+
     }
-`
-const voronoiVertexShader  = `
-    attribute vec3 vertexPosition;
-    uniform mat4 modelViewMatrix;
+`;
+
+/* buggy intel drivers have no default fragment shader for feedback transforms 
+ * http://stackoverflow.com/questions/38712224/is-fragment-shader-necessary-in-intel-hd-graphic-card */
+const blankFragmentShader = `#version 300 es
+    precision highp float;
+    out vec4 outputColor;
+
     void main(void) {
-        gl_Position =  modelViewMatrix * vec4(vertexPosition, 1.0);
+        outputColor = vec4(0.0, 0.0, 0.0, 0.0);
     }
 `;
 
-const voronoiFragmentShader = `
-    precision mediump float;
-    uniform vec3 vertexColor;
-    void main(void) { 
-        gl_FragColor =  vec4(vertexColor, 1.0);
-    }
-`;
 
-const finalOutputFragmentShader = `
-    precision mediump float;
-    uniform vec3 vertexColor;
-    void main(void) { 
-        gl_FragColor =  vec4(vertexColor, 1.0);
-    }
-`;
 
-const finalOutputVertexShader  = `
-    attribute vec3 vertexPosition;
-    uniform mat4 modelViewMatrix;
+const voronoiVertexShader  = `#version 300 es
+    precision highp float;
+    layout (location = 0) in vec2 instancedPosition;
+    layout (location = 1) in vec3 vertexPosition;
+
+    out vec3 indexAsColor;
+
     void main(void) {
-        gl_Position =  modelViewMatrix * vec4(vertexPosition, 1.0);
+        gl_Position = vec4(vertexPosition.xy + instancedPosition, vertexPosition.z, 1.0f);
+        indexAsColor = vec3(
+            float(gl_InstanceID % 256) / 255.0f, 
+            float((gl_InstanceID / 256) % 256) /255.0f, 
+            float((gl_InstanceID / 65536) % 256) /255.0f);
+    }
+`;
+
+const voronoiFragmentShader = `#version 300 es
+    precision highp float;
+    
+    in vec3 indexAsColor;
+    out vec4 outputColor;
+
+    void main(void) { 
+        outputColor =  vec4(indexAsColor, 1.0);
+    }
+`;
+
+const finalOutputFragmentShader = `#version 300 es
+    precision highp float;
+    out vec4 outputColor;
+
+    void main(void) { 
+        outputColor =  vec4(0.0, 0.0, 0.0, 1.0);
+    }
+`;
+
+const finalOutputVertexShader  = `#version 300 es
+    precision highp float;
+    layout (location = 0) in vec2 instancedPosition;
+    layout (location = 1) in vec3 vertexPosition;
+
+    void main(void) {
+        gl_Position = vec4(vertexPosition.xy * 0.005 + instancedPosition, vertexPosition.z * 0.005, 1.0f);
     }
 `;
 
@@ -167,7 +192,7 @@ class VoroniRenderer{
         this.output = {attributes: {}, uniforms: {}};
         this.finalOutput = {attributes: {}, uniforms: {}};
         this.frameBuffers = {};
-        this.voronoiUpscaleConstant = 2;
+        this.voronoiUpscaleConstant = 1; //supersampling
         this._loadImage(() => this._onReady());
     }
     _enableExtensions(){
@@ -204,7 +229,7 @@ class VoroniRenderer{
     }
     _loadImage(callback){
         this.inputImage = new Image();
-        this.inputImage.src = "static/cat.jpg";
+        this.inputImage.src = "static/a.jpg";
         this.inputImage.onload = () => {
             this.imageLoaded = true;
             callback();
@@ -316,13 +341,17 @@ class VoroniRenderer{
 
     _initOutputProgram(){
         /* Create shaders and shader program */
-        const vertexShader = this._getShader(centroidVertexShader, this.gl.VERTEX_SHADER);
-        const fragmentShader = this._getShader(outputFragmentShader, this.gl.FRAGMENT_SHADER);
+        const vertexShader = this._getShader(outputVertexShader, this.gl.VERTEX_SHADER);
+        const fragmentShader = this._getShader(blankFragmentShader, this.gl.FRAGMENT_SHADER);
 
         this.output.shaderProgram = this.gl.createProgram();
-        
+
         this.gl.attachShader(this.output.shaderProgram, vertexShader);
         this.gl.attachShader(this.output.shaderProgram, fragmentShader);
+
+        /* Capture output in feedback buffer */
+        this.gl.transformFeedbackVaryings(this.output.shaderProgram, ['centroidPos'], this.gl.INTERLEAVED_ATTRIBS);
+
         this.gl.linkProgram(this.output.shaderProgram);
 
         if(!this.gl.getProgramParameter(this.output.shaderProgram, this.gl.LINK_STATUS)){
@@ -407,14 +436,20 @@ class VoroniRenderer{
      * Inserts attribute locations into this.centroid.attributes
      */
     _getAttributeLocations(){
+        this.voronoi.attributes.instancedPosition = this.gl.getAttribLocation(this.voronoi.shaderProgram, "instancedPosition");
+        this.gl.enableVertexAttribArray(this.voronoi.attributes.instancedPosition);
+
+        this.finalOutput.attributes.instancedPosition = this.gl.getAttribLocation(this.finalOutput.shaderProgram, "instancedPosition");
+        this.gl.enableVertexAttribArray(this.finalOutput.attributes.instancedPosition);
+
+        this.output.attributes.outputIndex = this.gl.getAttribLocation(this.output.shaderProgram, "outputIndex");
+        this.gl.enableVertexAttribArray(this.output.attributes.outputIndex);
+
         this.voronoi.attributes.vertexPosition = this.gl.getAttribLocation(this.voronoi.shaderProgram, "vertexPosition");
         this.gl.enableVertexAttribArray(this.voronoi.attributes.vertexPosition);
 
         this.centroid.attributes.vertexPosition = this.gl.getAttribLocation(this.centroid.shaderProgram, "vertexPosition");
         this.gl.enableVertexAttribArray(this.centroid.attributes.vertexPosition);
-
-        this.output.attributes.vertexPosition = this.gl.getAttribLocation(this.output.shaderProgram, "vertexPosition");
-        this.gl.enableVertexAttribArray(this.output.attributes.vertexPosition);
 
         this.finalOutput.attributes.vertexPosition = this.gl.getAttribLocation(this.finalOutput.shaderProgram, "vertexPosition");
         this.gl.enableVertexAttribArray(this.finalOutput.attributes.vertexPosition);
@@ -447,6 +482,8 @@ class VoroniRenderer{
     _getBuffers(){
         this.buffers.quadPositionBuffer = this.gl.createBuffer();
         this.buffers.conePositionBuffer = this.gl.createBuffer();
+        this.buffers.instancedPositionBuffer = this.gl.createBuffer();
+        this.buffers.outputIndiceBuffer = this.gl.createBuffer();
     }
 
     /**
@@ -458,10 +495,26 @@ class VoroniRenderer{
         const quadVertices = this._createQuad();
         this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array(quadVertices), this.gl.STATIC_DRAW);
 
+        /* Bind Instanced Cone Positions */
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.instancedPositionBuffer);
+        const points = [];
+        this.points.forEach(point => {
+            points.push(point.x / this.inputImage.width * 2.0 - 1);
+            points.push(point.y / this.inputImage.height * 2.0 - 1);
+            points.push(0);
+        });
+
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array(points), this.gl.STATIC_DRAW);
+
         /* Bind Cone Data*/
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.conePositionBuffer);
         const coneVertices = this._createCone(0, 0, this.coneResolution);
         this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array(coneVertices), this.gl.STATIC_DRAW);
+
+        /* Bind output indice data*/
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.outputIndiceBuffer);
+        const indices = (new Array(this.samples).fill(1)).map((item, idx) => idx);
+        this.gl.bufferData(this.gl.ARRAY_BUFFER, new Uint32Array(indices), this.gl.STATIC_DRAW);
     }
 
     tick(){
@@ -470,19 +523,14 @@ class VoroniRenderer{
             console.log(`${this.iterations} iterations left`);
             setTimeout(() => requestAnimationFrame(() => this.tick(), 1000));
             this.render();
-            this._updatePointsFromCurrentFramebuffer();
 
             const savePoints = this.points;
             
             /* Render voronoi as we go */
-            this._renderVoronoi(null);
-            //this._debugFindCentroidsOnCPU();
-            this._debugRenderVoronoiCenters([0.0, 0.0, 1.0]);
-            //this.points = savePoints;
-            this._debugRenderVoronoiCenters([0.0, 1.0, 0.0]);
+            //this._renderVoronoi(null);
         }
         else{
-            //this._drawPointsOntoCanvas();
+            this._drawPointsOntoCanvas();
         }
     }
 
@@ -571,7 +619,6 @@ class VoroniRenderer{
         return new Float32Array([r / 255.0, g / 255.0 , b /255.0]);
     }
 
-    /* Renders the final dots */
     _renderFinalOutput(){
         this.gl.clearColor(1.0, 1.0, 1.0, 1.0);
         this.gl.useProgram(this.finalOutput.shaderProgram);
@@ -580,35 +627,21 @@ class VoroniRenderer{
         /* Render Voronoi to framebuffer */
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
         this.gl.viewport(0, 0, this.inputImage.width, this.inputImage.height);
+
+        /* Bind instanced positions*/
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.instancedPositionBuffer);
+        this.gl.vertexAttribPointer(this.finalOutput.attributes.instancedPosition, 3, this.gl.FLOAT, false, 0, 0);
+        this.gl.vertexAttribDivisor(this.finalOutput.attributes.instancedPosition, 1);
+
+        /* Bind Cone */
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.conePositionBuffer);
         this.gl.vertexAttribPointer(this.finalOutput.attributes.vertexPosition, 3, this.gl.FLOAT, false, 0, 0);
+        this.gl.vertexAttribDivisor(this.finalOutput.attributes.vertexPosition, 0);
 
-        let ct = 0;
-
-        this.gl.uniform3fv(this.finalOutput.uniforms.vertexColor, new Float32Array([0.0, 0.0, 0.0]));
-        this.points.forEach((point, idx) => {
-            /* Setup model view matrix for next voroni point */
-            const modelViewMatrix = mat4.create();
-            const dimension = Math.max(this.inputImage.width, this.inputImage.height);
-            mat4.translate(
-                modelViewMatrix,
-                modelViewMatrix,
-                [point.x/this.inputImage.width*2 - 1, point.y/this.inputImage.height * 2 - 1, 0]
-            );
-             mat4.scale(
-                modelViewMatrix,
-                modelViewMatrix,
-                [2/this.inputImage.width, 2/this.inputImage.height, 1.0]
-            );
-            this.gl.uniformMatrix4fv(
-                this.finalOutput.uniforms.modelViewMatrix,
-                false,
-                modelViewMatrix
-            );
-            this.gl.drawArrays(this.gl.TRIANGLE_FAN, 0, this.coneResolution+2);
-        });
-
-        this.gl.clearColor(0.0, 0.0, 0.0, 1.0);
+        this.gl.drawArraysInstanced(this.gl.TRIANGLE_FAN, 0, this.coneResolution+2, this.samples);
+        
+        /* this was originally done in webgl 1.0 which has no vaos */
+        this.gl.vertexAttribDivisor(this.voronoi.attributes.instancedPosition, 0);
     }
     
     /**
@@ -621,27 +654,21 @@ class VoroniRenderer{
         /* Render Voronoi to framebuffer */
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, framebuffer);
         this.gl.viewport(0, 0, this.inputImage.width * this.voronoiUpscaleConstant, this.inputImage.height * this.voronoiUpscaleConstant);
+
+        /* Bind instanced positions*/
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.instancedPositionBuffer);
+        this.gl.vertexAttribPointer(this.voronoi.attributes.instancedPosition, 3, this.gl.FLOAT, false, 0, 0);
+        this.gl.vertexAttribDivisor(this.voronoi.attributes.instancedPosition, 1);
+
+        /* Bind Cone */
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.conePositionBuffer);
         this.gl.vertexAttribPointer(this.voronoi.attributes.vertexPosition, 3, this.gl.FLOAT, false, 0, 0);
+        this.gl.vertexAttribDivisor(this.voronoi.attributes.vertexPosition, 0);
 
-        /* Draw a cone for each point*/
-        this.points.forEach((point, idx) => {
-            /* Setup model view matrix for next voroni point */
-            const modelViewMatrix = mat4.create();
-            mat4.translate(
-                modelViewMatrix,
-                modelViewMatrix,
-                [point.x/this.inputImage.width*2 - 1, point.y/this.inputImage.height * 2 - 1, 0]
-            );
-            this.gl.uniformMatrix4fv(
-                this.voronoi.uniforms.modelViewMatrix,
-                false,
-                modelViewMatrix
-            );
-            const indexEncodedAsRGB = this._encodeIntToRGB(idx);
-            this.gl.uniform3fv(this.voronoi.uniforms.vertexColor, indexEncodedAsRGB);
-            this.gl.drawArrays(this.gl.TRIANGLE_FAN, 0, this.coneResolution+2);
-        });
+        this.gl.drawArraysInstanced(this.gl.TRIANGLE_FAN, 0, this.coneResolution+2, this.samples);
+        
+        /* this was originally done in webgl 1.0 which has no vaos */
+        this.gl.vertexAttribDivisor(this.voronoi.attributes.instancedPosition, 0);
     }
 
     _debugRenderVoronoiCenters(color){
@@ -719,33 +746,34 @@ class VoroniRenderer{
     /* Renders the 1xsamples output of the centroids to a canvas */
     _renderOutput(){
         this.gl.useProgram(this.output.shaderProgram);
-
+        
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
         this.gl.viewport(0, 0, this.samples, 1);
         this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
         
-        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.quadPositionBuffer);
-        this.gl.vertexAttribPointer(this.output.attributes.vertexPosition, 3, this.gl.FLOAT, false, 0, 0);
+        this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.outputIndiceBuffer);
+        this.gl.vertexAttribPointer(this.output.attributes.outputIndex, 1, this.gl.UNSIGNED_INT, false, 0, 0);
 
         /* Setup model view matrix for next voroni point */
         const modelViewMatrix = mat4.create();
-        this.gl.uniformMatrix4fv(
-            this.output.uniforms.modelViewMatrix,
-            false,
-            modelViewMatrix
-        );
         this.gl.uniform1f(
             this.output.uniforms.voronoiUpscaleConstant,
             this.voronoiUpscaleConstant
         );
         this.gl.uniform2fv(
             this.output.uniforms.windowDimensions,
-            new Float32Array([this.samples, this.inputImage.height * this.voronoiUpscaleConstant])
+            new Float32Array([this.inputImage.width * this.voronoiUpscaleConstant, this.inputImage.height * this.voronoiUpscaleConstant])
         );
 
-        /* Setup Texture Samplers */
         this.gl.uniform1i(this.output.uniforms.intermediateSampler, 2);
-        this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
+
+        this.gl.bindBufferBase(this.gl.TRANSFORM_FEEDBACK_BUFFER, 0, this.buffers.instancedPositionBuffer);
+
+        this.gl.beginTransformFeedback(this.gl.POINTS);
+        this.gl.drawArrays(this.gl.POINTS, 0, this.samples);
+        this.gl.endTransformFeedback();
+
+        this.gl.bindBufferBase(this.gl.TRANSFORM_FEEDBACK_BUFFER, 0, null);
     }
     
     render(){
