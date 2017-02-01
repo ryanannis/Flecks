@@ -22,68 +22,9 @@
         Iterations: <input min="1" max="1000" value="20" id="iterations" type="number">
         Max Stipple Width (px): <input min="1" max="1000" value="5" id="scale" type="number">
         Number of Stipples: <input min="1" max="1000000" value="2000" id="stipples" type="number">
+        Supersampling: <input min="1" max="4" value="1" id="supersampling" type="number">
         <button disabled id="submitButton" type="submit">Stipple!</button>
     </form>
     <script src="dist/bundle.js"></script>
-    <script>
-        const fileUploader = document.getElementById('fileUploader');
-        const loadForm = document.getElementById('loadForm');
-        const preview = document.getElementById('preview');
-        const submitButton = document.getElementById('submitButton');
-        const iterationsInput = document.getElementById('iterations');
-        const scaleInput = document.getElementById('scale');
-        const stipplesInput = document.getElementById('stipples');
-
-        let file = null;
-        let fileValid = false;
-        const fileChange = () => {
-            const file = fileUploader.files[0];
-            const prevImage = document.getElementById("imgpreview");
-
-            const img = document.createElement("img");
-            img.classList.add("obj");
-            img.file = file;
-            img.id= "imgpreview";
-            
-            if(!prevImage){
-                preview.appendChild(img);
-            }
-            else{
-                prevImage.replaceWith(img);
-            }
-            const reader = new FileReader();
-            reader.onload = (
-                function(aImg){
-                    return function(e) {
-                        aImg.src = e.target.result;
-                    }; 
-            })(img);
-            reader.readAsDataURL(file);
-
-            fileValid = true;
-            if(fileValid){
-                submitButton.disabled = false;
-            }
-        }
-
-        const formSubmit = (event) => {
-            event.preventDefault();
-            const img = document.getElementById("imgpreview");
-
-            /* Execute voronoi */
-            const numStipples = Number(stipplesInput.value);
-            const numIterations = Number(iterationsInput.value);
-            const scale = Number(scaleInput.value);
-            const voroni = new VoroniRenderer(numStipples, numIterations, img, scale);
-            const canvas = voroni.getCanvasDOMNode();
-            img.replaceWith(canvas);
-            console.log(img);
-        }
-
-        loadForm.onsubmit = formSubmit;
-        fileUploader.onchange = fileChange;
-    
-        
-    </script>
 </body>
 </html>

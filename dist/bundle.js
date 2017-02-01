@@ -53,671 +53,80 @@
 
 	'use strict';
 
-	Object.defineProperty(exports, "__esModule", {
-	    value: true
-	});
+	var _VoronoiStippler = __webpack_require__(12);
 
-	var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+	var _VoronoiStippler2 = _interopRequireDefault(_VoronoiStippler);
 
-	var _glMatrix = __webpack_require__(2);
+	function _interopRequireDefault(obj) { return obj && obj.__esModule ? obj : { default: obj }; }
 
-	function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+	var fileUploader = document.getElementById('fileUploader');
+	var loadForm = document.getElementById('loadForm');
+	var preview = document.getElementById('preview');
+	var submitButton = document.getElementById('submitButton');
+	var iterationsInput = document.getElementById('iterations');
+	var scaleInput = document.getElementById('scale');
+	var stipplesInput = document.getElementById('stipples');
+	var supersamplingInput = document.getElementById('supersampling');
 
-	/* Credits to Matt Keeter for this approach https://www.mattkeeter.com/projects/swingline/ */
+	var file = null;
+	var fileValid = false;
+	var fileChange = function fileChange() {
+	    var file = fileUploader.files[0];
+	    var prevImage = document.getElementById("imgpreview");
+	    var canvas = document.getElementById("renderCanvas");
 
-	var centroidVertexShader = '#version 300 es\n    in vec3 vertexPosition;\n    uniform mat4 modelViewMatrix;\n\n    void main(void) {\n        gl_Position =  modelViewMatrix * vec4(vertexPosition, 1.0);\n    }\n';
+	    var img = document.createElement("img");
+	    img.classList.add("obj");
+	    img.file = file;
+	    img.id = "imgpreview";
 
-	var centroidFragmentShader = '#version 300 es\n    precision highp float;\n    \n    uniform sampler2D imageSampler;\n    uniform sampler2D voronoiSampler;\n    uniform int sampleOffset;\n    out vec4 sum;\n      void main(void) {\n        // GLES3.0 is missing layout qualifiers for rounded down fragcoord so round down manually\n        vec4 screen_coords = vec4(floor(gl_FragCoord.x), floor(gl_FragCoord.y), floor(gl_FragCoord.z), floor(gl_FragCoord.w));\n        \n        int thisIndex = int(int(screen_coords.x) + sampleOffset);\n        ivec2 texSize = textureSize(voronoiSampler, 0);\n        sum = vec4(0.0, 0.0, 0.0, 0.0);\n        for(int x = 0; x < texSize.x ; x++){\n            ivec2 texCoord = ivec2(x, int(screen_coords.y));\n            vec4 voronoiTexel = texelFetch(voronoiSampler, texCoord, 0);\n            int currentVoronoiIndex = int(255.0f * (voronoiTexel.x + (voronoiTexel.y * 256.0f) + (voronoiTexel.z * 65536.0f)));\n            if(currentVoronoiIndex == thisIndex){\n                vec4 imageTexel = texelFetch(imageSampler, texCoord, 0);\n                float weight = 1.0 - 0.30 * imageTexel.x - 0.59 * imageTexel.y - 0.11 * imageTexel.z;\n                weight = 0.01 + weight * 0.99; // give minum weight to avoid divide by zero\n                //weight = 1.0; // For debugging, if we set weight to 1.0 it should spread out evenly\n                sum.x += (float(x) + 0.5) * weight;\n                sum.y += (screen_coords.y + 0.5) * weight;\n                sum.z += weight;\n                sum.w += 1.0;\n            }   \n        }\n        sum.x /= float(texSize.x);\n        sum.y /= float(texSize.y);\n    }\n';
-
-	var outputVertexShader = '#version 300 es\n    precision highp float;\n    uniform sampler2D intermediateSampler;\n    uniform vec2 windowDimensions;\n    uniform float voronoiUpscaleConstant;\n    in float outputIndex;\n    out vec3 centroidPos;\n    void main(void) {\n        ivec2 texSize = textureSize(intermediateSampler, 0);\n        float weight = 0.0;\n        float count = 0.0;\n        /* Accumulate summing over columns */\n        float ix = 0.0;\n        float iy = 0.0;\n        centroidPos = vec3(0.0f, 0.0f, 0.0f);\n        for(int y = 0; y < texSize.y; y++){\n            ivec2 texCoord = ivec2(int(outputIndex), y);\n            vec4 intermediateTexel = texelFetch(intermediateSampler, texCoord, 0);\n            ix += intermediateTexel.x;\n            iy += intermediateTexel.y;\n            weight += intermediateTexel.z; \n            count += intermediateTexel.w;\n        }\n        ix /= weight;\n        iy /= weight;\n        weight /= count;\n        centroidPos = vec3(\n            ix * 2.0 - 1.0,\n            iy * 2.0 - 1.0,\n            weight\n        );\n    }\n';
-
-	/* intel drivers have no default fragment shader for feedback transforms 
-	 * http://stackoverflow.com/questions/38712224/is-fragment-shader-necessary-in-intel-hd-graphic-card */
-	var blankFragmentShader = '#version 300 es\n    precision highp float;\n    out vec4 outputColor;\n\n    void main(void) {\n        outputColor = vec4(0.0, 0.0, 0.0, 0.0);\n    }\n';
-
-	var voronoiVertexShader = '#version 300 es\n    precision highp float;\n    layout (location = 0) in vec2 instancedPosition;\n    layout (location = 1) in vec3 vertexPosition;\n\n    out vec3 indexAsColor;\n\n    void main(void) {\n        gl_Position = vec4(vertexPosition.xy + instancedPosition, vertexPosition.z, 1.0f);\n        indexAsColor = vec3(\n            float(gl_InstanceID % 256) / 255.0f, \n            float((gl_InstanceID / 256) % 256) /255.0f, \n            float((gl_InstanceID / 65536) % 256) /255.0f);\n    }\n';
-
-	var voronoiFragmentShader = '#version 300 es\n    precision highp float;\n    \n    in vec3 indexAsColor;\n    out vec4 outputColor;\n\n    void main(void) { \n        outputColor =  vec4(indexAsColor, 1.0);\n    }\n';
-
-	var finalOutputFragmentShader = '#version 300 es\n    precision highp float;\n        out vec4 outputColor;\n\n    void main(void) { \n        outputColor =  vec4(0.0, 0.0, 0.0, 1.0);\n    }\n';
-
-	var finalOutputVertexShader = '#version 300 es\n    precision highp float;\n    layout (location = 0) in vec3 instancedPosition;\n    layout (location = 1) in vec3 vertexPosition;\n   \n    uniform float scaleFactor;\n\n    void main(void) {\n        gl_Position = vec4(\n            vertexPosition.x * instancedPosition.z * scaleFactor + instancedPosition.x,\n            vertexPosition.y * instancedPosition.z * scaleFactor + instancedPosition.y, \n            vertexPosition.z ,\n            1.0f\n        );\n    }\n';
-
-	var VoronoiStipplerWGL2 = function () {
-	    /**
-	     * @param {Number} Samples
-	     * @param {Boolean} debug
-	     */
-	    function VoronoiStipplerWGL2(samples, iterations, inputImage, scale, debug) {
-	        _classCallCheck(this, VoronoiStipplerWGL2);
-
-	        this.inputImage = inputImage;
-	        this.debug = debug;
-	        this.scale = scale;
-	        this.iterations = iterations;
-	        this.samples = samples;
-	        this._init();
+	    if (prevImage) {
+	        prevImage.replaceWith(img);
+	    } else if (canvas) {
+	        canvas.replaceWith(img);
+	    } else {
+	        preview.appendChild(img);
 	    }
-
-	    _createClass(VoronoiStipplerWGL2, [{
-	        key: '_init',
-	        value: function _init() {
-	            this.coneResolution = 100;
-	            /* Init offscreen canvas */
-	            this.canvas = document.createElement("canvas");
-	            this.canvas.width = 0;
-	            this.canvas.height = 1;
-
-	            this.gl = this.canvas.getContext('webgl2', { preserveDrawingBuffer: true, antialias: true });
-	            this.textures = {};
-	            this.buffers = {};
-	            this.centroid = { attributes: {}, uniforms: {} };
-	            this.voronoi = { attributes: {}, uniforms: {} };
-	            this.output = { attributes: {}, uniforms: {} };
-	            this.finalOutput = { attributes: {}, uniforms: {} };
-	            this.frameBuffers = {};
-	            this.voronoiUpscaleConstant = 1; //supersampling amount
-	            this._enableExtensions();
-	            this._genInitialData();
-	            this._initGL();
-	            this.tick();
-	        }
-	    }, {
-	        key: '_enableExtensions',
-	        value: function _enableExtensions() {
-	            var float_texture_ext = this.gl.getExtension('EXT_color_buffer_float');
-	            if (!float_texture_ext) {
-	                console.error("This requires the EXT_color_buffer_float extension to operate!");
-	            }
-	        }
-	    }, {
-	        key: '_initGL',
-	        value: function _initGL() {
-	            this.canvas.width = Math.max(this.inputImage.width);
-	            this.canvas.height = this.inputImage.height * this.voronoiUpscaleConstant;
-
-	            this.maxTextureSize = this.gl.getParameter(this.gl.MAX_TEXTURE_SIZE);
-
-	            this._initShaders();
-
-	            /* Create Uniforms/Attributes*/
-	            this._getUniformLocations();
-	            this._getAttributeLocations();
-	            this._getBuffers();
-
-	            /* Bind data*/
-	            this._bindDataToBuffers();
-
-	            /* Setup Textures */
-	            this._initImageAsTexture();
-
-	            /* Setup Framebuffers*/
-	            this._initFrameBuffers();
-
-	            /* GL state toggles*/
-	            this.gl.clearColor(0.0, 0.0, 0.0, 1.0);
-	            this.gl.enable(this.gl.DEPTH_TEST);
-	            this.gl.depthFunc(this.gl.LEQUAL);
-	        }
-	    }, {
-	        key: '_initFrameBuffers',
-	        value: function _initFrameBuffers() {
-	            this.gl.pixelStorei(this.gl.UNPACK_ALIGNMENT, 1);
-	            this.gl.activeTexture(this.gl.TEXTURE1);
-	            this.textures.voronoiTexture = this.gl.createTexture();
-	            this.gl.bindTexture(this.gl.TEXTURE_2D, this.textures.voronoiTexture);
-	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
-	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
-	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
-	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
-	            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.inputImage.width * this.voronoiUpscaleConstant, this.inputImage.height * this.voronoiUpscaleConstant, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, null);
-
-	            this.frameBuffers.voronoi = this.gl.createFramebuffer();
-	            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.frameBuffers.voronoi);
-	            this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.textures.voronoiTexture, 0);
-
-	            /* Voronoi diagram needs a depthbuffer because of how the cone algorithm works */
-	            var renderbuffer = this.gl.createRenderbuffer();
-	            this.gl.bindRenderbuffer(this.gl.RENDERBUFFER, renderbuffer);
-	            this.gl.renderbufferStorage(this.gl.RENDERBUFFER, this.gl.DEPTH_COMPONENT32F, this.inputImage.width * this.voronoiUpscaleConstant, this.inputImage.height * this.voronoiUpscaleConstant);
-	            this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.textures.voronoiTexture, 0);
-	            this.gl.framebufferRenderbuffer(this.gl.FRAMEBUFFER, this.gl.DEPTH_ATTACHMENT, this.gl.RENDERBUFFER, renderbuffer);
-
-	            this.gl.activeTexture(this.gl.TEXTURE2);
-	            this.textures.intermediateTexture = this.gl.createTexture();
-	            this.gl.bindTexture(this.gl.TEXTURE_2D, this.textures.intermediateTexture);
-	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
-	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
-	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
-	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
-	            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA32F, Math.min(this.samples, this.maxTextureSize), this.inputImage.height * this.voronoiUpscaleConstant, 0, this.gl.RGBA, this.gl.FLOAT, null);
-	            this.frameBuffers.intermediate = this.gl.createFramebuffer();
-	            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.frameBuffers.intermediate);
-	            this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.textures.intermediateTexture, 0);
-	        }
-	    }, {
-	        key: '_initImageAsTexture',
-	        value: function _initImageAsTexture() {
-	            this.gl.activeTexture(this.gl.TEXTURE0);
-	            this.textures.imageTexture = this.gl.createTexture();
-	            this.gl.bindTexture(this.gl.TEXTURE_2D, this.textures.imageTexture);
-	            this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, true);
-	            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, this.inputImage);
-	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
-	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
-	            /* npt textures */
-	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
-	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
-	        }
-
-	        /**
-	         * Binds string as a shader to the gl context.
-	         * @param {String} str The string to be bound as a shader.
-	         * @param {Number} shaderType Either gl.vertexShader or gl.fragmentShader
-	         * @return {WebGLShader} Newly bound shader.
-	        */
-
-	    }, {
-	        key: '_getShader',
-	        value: function _getShader(str, shaderType) {
-	            var shader = this.gl.createShader(shaderType);
-
-	            this.gl.shaderSource(shader, str);
-	            this.gl.compileShader(shader);
-
-	            if (!this.gl.getShaderParameter(shader, this.gl.COMPILE_STATUS)) {
-	                console.error(this.gl.getShaderInfoLog(shader));
-	                return null;
-	            }
-	            return shader;
-	        }
-
-	        /**
-	         * Initializes the shader program
-	         */
-
-	    }, {
-	        key: '_initShaders',
-	        value: function _initShaders() {
-	            this._initCentroidProgram();
-	            this._initVoronoiProgram();
-	            this._initOutputProgram();
-	            this._initFinalOutputProgram();
-	        }
-	    }, {
-	        key: '_initCentroidProgram',
-	        value: function _initCentroidProgram() {
-	            /* Create shaders and shader program */
-	            var vertexShader = this._getShader(centroidVertexShader, this.gl.VERTEX_SHADER);
-	            var fragmentShader = this._getShader(centroidFragmentShader, this.gl.FRAGMENT_SHADER);
-
-	            this.centroid.shaderProgram = this.gl.createProgram();
-
-	            this.gl.attachShader(this.centroid.shaderProgram, vertexShader);
-	            this.gl.attachShader(this.centroid.shaderProgram, fragmentShader);
-	            this.gl.linkProgram(this.centroid.shaderProgram);
-
-	            if (!this.gl.getProgramParameter(this.centroid.shaderProgram, this.gl.LINK_STATUS)) {
-	                console.error("Could not init centroid shaders.");
-	                return null;
-	            }
-	        }
-	    }, {
-	        key: '_initOutputProgram',
-	        value: function _initOutputProgram() {
-	            /* Create shaders and shader program */
-	            var vertexShader = this._getShader(outputVertexShader, this.gl.VERTEX_SHADER);
-	            var fragmentShader = this._getShader(blankFragmentShader, this.gl.FRAGMENT_SHADER);
-
-	            this.output.shaderProgram = this.gl.createProgram();
-
-	            this.gl.attachShader(this.output.shaderProgram, vertexShader);
-	            this.gl.attachShader(this.output.shaderProgram, fragmentShader);
-
-	            /* Capture output in feedback buffer */
-	            this.gl.transformFeedbackVaryings(this.output.shaderProgram, ['centroidPos'], this.gl.INTERLEAVED_ATTRIBS);
-
-	            this.gl.linkProgram(this.output.shaderProgram);
-
-	            if (!this.gl.getProgramParameter(this.output.shaderProgram, this.gl.LINK_STATUS)) {
-	                console.error("Could not init output shaders.");
-	                return null;
-	            }
-	        }
-	    }, {
-	        key: '_initVoronoiProgram',
-	        value: function _initVoronoiProgram() {
-	            var vertexShader = this._getShader(voronoiVertexShader, this.gl.VERTEX_SHADER);
-	            var fragmentShader = this._getShader(voronoiFragmentShader, this.gl.FRAGMENT_SHADER);
-
-	            this.voronoi.shaderProgram = this.gl.createProgram();
-
-	            this.gl.attachShader(this.voronoi.shaderProgram, vertexShader);
-	            this.gl.attachShader(this.voronoi.shaderProgram, fragmentShader);
-	            this.gl.linkProgram(this.voronoi.shaderProgram);
-
-	            if (!this.gl.getProgramParameter(this.voronoi.shaderProgram, this.gl.LINK_STATUS)) {
-	                console.error("Could not init voronoi shaders.");
-	                return null;
-	            }
-	        }
-	    }, {
-	        key: '_initFinalOutputProgram',
-	        value: function _initFinalOutputProgram() {
-	            var vertexShader = this._getShader(finalOutputVertexShader, this.gl.VERTEX_SHADER);
-	            var fragmentShader = this._getShader(finalOutputFragmentShader, this.gl.FRAGMENT_SHADER);
-
-	            this.finalOutput.shaderProgram = this.gl.createProgram();
-
-	            this.gl.attachShader(this.finalOutput.shaderProgram, vertexShader);
-	            this.gl.attachShader(this.finalOutput.shaderProgram, fragmentShader);
-	            this.gl.linkProgram(this.finalOutput.shaderProgram);
-
-	            if (!this.gl.getProgramParameter(this.finalOutput.shaderProgram, this.gl.LINK_STATUS)) {
-	                console.error("Could not init finaloutput shaders.");
-	                return null;
-	            }
-	        }
-
-	        /**
-	         * Create quad
-	         * @param {Number} x x-coordinate of the center on the current coordinate system
-	         * @param {Number} y x-coordinate of the center on the current coordinate system
-	         * @param {Number} edges The number of edges for the base to have (not the total)
-	        */
-
-	    }, {
-	        key: '_createQuad',
-	        value: function _createQuad(x, y, edges) {
-	            return [-1.0, -1.0, -1.0, -1.0, 1.0, -1.0, 1.0, -1.0, -1.0, 1.0, 1.0, -1.0];
-	        }
-
-	        /**
-	         * Creates cone with the given number of edges parametrically.
-	         * @param {Number} x x-coordinate of the center on the current coordinate system
-	         * @param {Number} y x-coordinate of the center on the current coordinate system
-	         * @param {Number} edges The number of edges for the base to have (not the total)
-	        */
-
-	    }, {
-	        key: '_createCone',
-	        value: function _createCone(x, y, edges) {
-	            var pi = Math.PI;
-	            var vertices = new Array(edges * (3 + 2));
-
-	            /* Center of cone */
-	            vertices[0] = x;
-	            vertices[1] = y;
-	            vertices[2] = -1;
-
-	            for (var i = 1; i <= edges + 2; i++) {
-	                var ratio = i / edges;
-	                vertices[i * 3] = x + Math.sin(2 * pi * ratio);
-	                vertices[i * 3 + 1] = y + Math.cos(2 * pi * ratio);
-	                vertices[i * 3 + 2] = 1;
-	            }
-	            return vertices;
-	        }
-	        /**
-	         * Inserts attribute locations into this.centroid.attributes
-	         */
-
-	    }, {
-	        key: '_getAttributeLocations',
-	        value: function _getAttributeLocations() {
-	            this.voronoi.attributes.instancedPosition = this.gl.getAttribLocation(this.voronoi.shaderProgram, "instancedPosition");
-	            this.gl.enableVertexAttribArray(this.voronoi.attributes.instancedPosition);
-
-	            this.finalOutput.attributes.instancedPosition = this.gl.getAttribLocation(this.finalOutput.shaderProgram, "instancedPosition");
-	            this.gl.enableVertexAttribArray(this.finalOutput.attributes.instancedPosition);
-
-	            this.output.attributes.outputIndex = this.gl.getAttribLocation(this.output.shaderProgram, "outputIndex");
-	            this.gl.enableVertexAttribArray(this.output.attributes.outputIndex);
-
-	            this.voronoi.attributes.vertexPosition = this.gl.getAttribLocation(this.voronoi.shaderProgram, "vertexPosition");
-	            this.gl.enableVertexAttribArray(this.voronoi.attributes.vertexPosition);
-
-	            this.centroid.attributes.vertexPosition = this.gl.getAttribLocation(this.centroid.shaderProgram, "vertexPosition");
-	            this.gl.enableVertexAttribArray(this.centroid.attributes.vertexPosition);
-
-	            this.finalOutput.attributes.vertexPosition = this.gl.getAttribLocation(this.finalOutput.shaderProgram, "vertexPosition");
-	            this.gl.enableVertexAttribArray(this.finalOutput.attributes.vertexPosition);
-	        }
-
-	        /**
-	         * Inserts uniform locations into this.centroid.attributes
-	         */
-
-	    }, {
-	        key: '_getUniformLocations',
-	        value: function _getUniformLocations() {
-	            this.centroid.uniforms.modelViewMatrix = this.gl.getUniformLocation(this.centroid.shaderProgram, "modelViewMatrix");
-	            this.centroid.uniforms.imageSampler = this.gl.getUniformLocation(this.centroid.shaderProgram, "imageSampler");
-	            this.centroid.uniforms.voronoiSampler = this.gl.getUniformLocation(this.centroid.shaderProgram, "voronoiSampler");
-	            this.centroid.uniforms.sampleOffset = this.gl.getUniformLocation(this.centroid.shaderProgram, "sampleOffset");
-	            this.centroid.uniforms.voronoiUpscaleConstant = this.gl.getUniformLocation(this.centroid.shaderProgram, "voronoiUpscaleConstant");
-
-	            this.output.uniforms.modelViewMatrix = this.gl.getUniformLocation(this.output.shaderProgram, "modelViewMatrix");
-	            this.output.uniforms.intermediateSampler = this.gl.getUniformLocation(this.output.shaderProgram, "intermediateSampler");
-	            this.output.uniforms.windowDimensions = this.gl.getUniformLocation(this.output.shaderProgram, "windowDimensions");
-	            this.output.uniforms.voronoiUpscaleConstant = this.gl.getUniformLocation(this.output.shaderProgram, "voronoiUpscaleConstant");
-
-	            this.voronoi.uniforms.modelViewMatrix = this.gl.getUniformLocation(this.voronoi.shaderProgram, "modelViewMatrix");
-	            this.voronoi.uniforms.vertexColor = this.gl.getUniformLocation(this.voronoi.shaderProgram, "vertexColor");
-
-	            this.finalOutput.uniforms.scaleFactor = this.gl.getUniformLocation(this.finalOutput.shaderProgram, "scaleFactor");
-	        }
-
-	        /**
-	         * Gets buffers and inserts them into this.buffers
-	         */
-
-	    }, {
-	        key: '_getBuffers',
-	        value: function _getBuffers() {
-	            this.buffers.quadPositionBuffer = this.gl.createBuffer();
-	            this.buffers.conePositionBuffer = this.gl.createBuffer();
-	            this.buffers.instancedPositionBuffer = this.gl.createBuffer();
-	            this.buffers.outputIndiceBuffer = this.gl.createBuffer();
-	        }
-
-	        /**
-	         * Generates geometry and color data then binds it to the appropriate buffers
-	         */
-
-	    }, {
-	        key: '_bindDataToBuffers',
-	        value: function _bindDataToBuffers() {
-	            var _this = this;
-
-	            /* Bind Quad Data*/
-	            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.quadPositionBuffer);
-	            var quadVertices = this._createQuad();
-	            this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array(quadVertices), this.gl.STATIC_DRAW);
-
-	            /* Bind Instanced Cone Positions */
-	            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.instancedPositionBuffer);
-	            var points = [];
-	            this.points.forEach(function (point) {
-	                points.push(point.x / _this.inputImage.width * 2.0 - 1);
-	                points.push(1 - point.y / _this.inputImage.height * 2.0);
-	                points.push(0.8);
-	            });
-
-	            this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array(points), this.gl.STATIC_DRAW);
-
-	            /* Bind Cone Data*/
-	            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.conePositionBuffer);
-	            var coneVertices = this._createCone(0, 0, this.coneResolution);
-	            this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array(coneVertices), this.gl.STATIC_DRAW);
-
-	            /* Bind output indice data*/
-	            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.outputIndiceBuffer);
-	            var indices = new Array(this.samples).fill(1).map(function (item, idx) {
-	                return idx;
-	            });
-	            this.gl.bufferData(this.gl.ARRAY_BUFFER, new Uint32Array(indices), this.gl.STATIC_DRAW);
-	        }
-	    }, {
-	        key: 'tick',
-	        value: function tick() {
-	            var _this2 = this;
-
-	            this.iterations--;
-	            if (this.iterations > 0) {
-	                console.log(this.iterations + ' iterations left');
-	                setTimeout(function () {
-	                    return requestAnimationFrame(function () {
-	                        return _this2.tick();
-	                    });
-	                }, 50);
-	                this.render();
-
-	                this._renderFinalOutput();
-	                //this._renderVoronoi(null);
-	            } else {
-	                this._drawPointsOntoCanvas();
-	            }
-	        }
-	    }, {
-	        key: '_debugFindCentroidsOnCPU',
-	        value: function _debugFindCentroidsOnCPU() {
-	            var pixels = new Uint8Array(this.inputImage.width * this.inputImage.height * 4 * this.voronoiUpscaleConstant * this.voronoiUpscaleConstant);
-	            var imgd = this.gl.readPixels(0, 0, this.inputImage.width * this.voronoiUpscaleConstant, this.inputImage.height * this.voronoiUpscaleConstant, this.gl.RGBA, this.gl.UNSIGNED_BYTE, pixels);
-	            for (var i = 0; i < this.samples; i++) {
-
-	                var sumX = 0;
-	                var sumY = 0;
-	                var ct = 0;
-	                for (var x = 0; x < this.inputImage.width * this.voronoiUpscaleConstant; x++) {
-	                    for (var y = 0; y < this.inputImage.height * this.voronoiUpscaleConstant; y++) {
-	                        var pixelR = pixels[(x + this.inputImage.height * this.voronoiUpscaleConstant * y) * 4];
-	                        var pixelG = pixels[(x + this.inputImage.height * this.voronoiUpscaleConstant * y) * 4 + 2];
-	                        var pixelB = pixels[(x + this.inputImage.height * this.voronoiUpscaleConstant * y) * 4 + 3];
-	                        if (pixelR === i) {
-	                            ct++;
-	                            sumX += x;
-	                            sumY += y;
-	                        }
-	                    }
-	                }
-	                this.points[i] = { x: sumX / ct / this.voronoiUpscaleConstant, y: sumY / ct / this.voronoiUpscaleConstant, weight: 100 };
-	            }
-	        }
-	    }, {
-	        key: '_drawPointsOntoCanvas',
-	        value: function _drawPointsOntoCanvas() {
-	            this._renderFinalOutput();
-	        }
-
-	        /* Generates intial data with rejection sampling */
-
-	    }, {
-	        key: '_genInitialData',
-	        value: function _genInitialData() {
-	            this.points = [];
-	            /* Use temporary canvas to load image to get luminesence values.*/
-	            var tempCanvas = document.createElement('canvas');
-	            tempCanvas.width = this.inputImage.width * this.voronoiUpscaleConstant;
-	            tempCanvas.height = this.inputImage.height * this.voronoiUpscaleConstant;
-	            var ctx = tempCanvas.getContext('2d');
-	            ctx.drawImage(this.inputImage, 0, 0);
-	            var imageData = ctx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
-	            var i = 0;
-	            while (i < this.samples) {
-	                var x = Math.random() * this.inputImage.width;
-	                var y = Math.random() * this.inputImage.height;
-	                var index = Math.floor(x) * 4 + Math.floor(y) * this.inputImage.width * 4;
-	                var red = imageData.data[index];
-	                var blue = imageData.data[index + 1];
-	                var green = imageData.data[index + 2];
-
-	                if (Math.random() * 255 > red * 0.30 + 0.59 * blue + 0.11 * green) {
-	                    this.points.push({ x: x, y: y, weight: 255 });
-	                    i++;
-	                }
-	            }
-	        }
-
-	        /**
-	         * Encodes an int as a OpenGL formatted float.
-	         * @param {Number} i Must be a whole number
-	         * @return {Float32Array} A 3 dimensional array representing i
-	        */
-
-	    }, {
-	        key: '_encodeIntToRGB',
-	        value: function _encodeIntToRGB(i) {
-	            var r = i % 256;
-	            var g = Math.floor(i / 256) % 256;
-	            var b = Math.floor(i / 65536) % 256;
-	            return new Float32Array([r / 255.0, g / 255.0, b / 255.0]);
-	        }
-	    }, {
-	        key: '_renderFinalOutput',
-	        value: function _renderFinalOutput() {
-	            this.gl.clearColor(1.0, 1.0, 1.0, 1.0);
-	            this.gl.useProgram(this.finalOutput.shaderProgram);
-
-	            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
-	            this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
-	            this.gl.uniform1f(this.finalOutput.uniforms.scaleFactor, this.scale / this.inputImage.width);
-
-	            /* Render Voronoi to framebuffer */
-	            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
-	            this.gl.viewport(0, 0, this.inputImage.width, this.inputImage.height);
-
-	            /* Bind instanced positions*/
-	            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.instancedPositionBuffer);
-	            this.gl.vertexAttribPointer(this.finalOutput.attributes.instancedPosition, 3, this.gl.FLOAT, false, 0, 0);
-	            this.gl.vertexAttribDivisor(this.finalOutput.attributes.instancedPosition, 1);
-
-	            /* Bind Cone */
-	            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.conePositionBuffer);
-	            this.gl.vertexAttribPointer(this.finalOutput.attributes.vertexPosition, 3, this.gl.FLOAT, false, 0, 0);
-	            this.gl.vertexAttribDivisor(this.finalOutput.attributes.vertexPosition, 0);
-
-	            this.gl.drawArraysInstanced(this.gl.TRIANGLE_FAN, 0, this.coneResolution + 2, this.samples);
-
-	            /* this was originally done in webgl 1.0 which has no vaos */
-	            this.gl.vertexAttribDivisor(this.voronoi.attributes.instancedPosition, 0);
-	            this.gl.clearColor(0.0, 0.0, 0.0, 1.0);
-	        }
-
-	        /**
-	         * Encodes the current points as a Voronoi diagram into the framebuffer.
-	        */
-
-	    }, {
-	        key: '_renderVoronoi',
-	        value: function _renderVoronoi(framebuffer) {
-	            this.gl.useProgram(this.voronoi.shaderProgram);
-
-	            /* Render Voronoi to framebuffer */
-	            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, framebuffer);
-
-	            this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
-	            this.gl.viewport(0, 0, this.inputImage.width * this.voronoiUpscaleConstant, this.inputImage.height * this.voronoiUpscaleConstant);
-
-	            /* Bind instanced positions*/
-	            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.instancedPositionBuffer);
-	            this.gl.vertexAttribPointer(this.voronoi.attributes.instancedPosition, 3, this.gl.FLOAT, false, 0, 0);
-	            this.gl.vertexAttribDivisor(this.voronoi.attributes.instancedPosition, 1);
-
-	            /* Bind Cone */
-	            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.conePositionBuffer);
-	            this.gl.vertexAttribPointer(this.voronoi.attributes.vertexPosition, 3, this.gl.FLOAT, false, 0, 0);
-	            this.gl.vertexAttribDivisor(this.voronoi.attributes.vertexPosition, 0);
-
-	            this.gl.drawArraysInstanced(this.gl.TRIANGLE_FAN, 0, this.coneResolution + 2, this.samples);
-
-	            /* this was originally done in webgl 1.0 which has no vaos */
-	            this.gl.vertexAttribDivisor(this.voronoi.attributes.instancedPosition, 0);
-	        }
-	    }, {
-	        key: '_debugRenderVoronoiCenters',
-	        value: function _debugRenderVoronoiCenters(color) {
-	            var _this3 = this;
-
-	            this.gl.useProgram(this.voronoi.shaderProgram);
-	            this.gl.clear(this.gl.DEPTH_BUFFER_BIT);
-
-	            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
-	            this.gl.viewport(0, 0, this.inputImage.width * this.voronoiUpscaleConstant, this.inputImage.height * this.voronoiUpscaleConstant);
-	            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.conePositionBuffer);
-	            this.gl.vertexAttribPointer(this.voronoi.attributes.vertexPosition, 3, this.gl.FLOAT, false, 0, 0);
-
-	            this.gl.uniform3f(this.voronoi.uniforms.vertexColor, color[0], color[1], color[2]);
-	            /* Draw a cone for each point*/
-	            this.points.forEach(function (point) {
-	                var modelViewMatrix = _glMatrix.mat4.create();
-	                _glMatrix.mat4.translate(modelViewMatrix, modelViewMatrix, [point.x / _this3.inputImage.width * 2 - 1, point.y / _this3.inputImage.height * 2 - 1, 0]);
-	                _glMatrix.mat4.scale(modelViewMatrix, modelViewMatrix, [1 / _this3.inputImage.width, 1 / _this3.inputImage.height, 1.0]);
-
-	                _this3.gl.uniformMatrix4fv(_this3.voronoi.uniforms.modelViewMatrix, false, modelViewMatrix);
-	                _this3.gl.uniformMatrix4fv(_this3.voronoi.uniforms.modelViewMatrix, false, modelViewMatrix);
-	                _this3.gl.drawArrays(_this3.gl.TRIANGLE_FAN, 0, _this3.coneResolution + 2);
-	            });
-	        }
-
-	        /* Renders a 1xcells textures containing the centroid of each cell of the Voronoi diagram
-	         * encoded in the colors of each pixel */
-
-	    }, {
-	        key: '_renderCentroid',
-	        value: function _renderCentroid(start, end, framebuffer) {
-	            this.gl.useProgram(this.centroid.shaderProgram);
-
-	            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, framebuffer);
-	            this.gl.viewport(0, 0, end - start, this.inputImage.height * this.voronoiUpscaleConstant);
-	            this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
-
-	            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.quadPositionBuffer);
-	            this.gl.vertexAttribPointer(this.centroid.attributes.vertexPosition, 3, this.gl.FLOAT, false, 0, 0);
-
-	            /* Setup model view matrix for next voroni point */
-	            var modelViewMatrix = _glMatrix.mat4.create();
-	            this.gl.uniformMatrix4fv(this.centroid.uniforms.modelViewMatrix, false, modelViewMatrix);
-	            this.gl.uniform1i(this.centroid.uniforms.sampleOffset, start);
-
-	            /* Setup Texture Samplers */
-	            this.gl.uniform1i(this.centroid.uniforms.imageSampler, 0);
-	            this.gl.uniform1i(this.centroid.uniforms.voronoiSampler, 1);
-	            this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
-	        }
-
-	        /* Renders the 1xsamples output of the centroids to a canvas */
-
-	    }, {
-	        key: '_renderOutput',
-	        value: function _renderOutput(start, end) {
-	            this.gl.useProgram(this.output.shaderProgram);
-
-	            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
-	            this.gl.viewport(0, 0, end - start, 1);
-	            this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
-
-	            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.outputIndiceBuffer);
-	            this.gl.vertexAttribPointer(this.output.attributes.outputIndex, 1, this.gl.UNSIGNED_INT, false, 0, 0);
-
-	            /* Setup model view matrix for next voroni point */
-	            var modelViewMatrix = _glMatrix.mat4.create();
-	            this.gl.uniform1f(this.output.uniforms.voronoiUpscaleConstant, this.voronoiUpscaleConstant);
-	            this.gl.uniform2fv(this.output.uniforms.windowDimensions, new Float32Array([this.inputImage.width * this.voronoiUpscaleConstant, this.inputImage.height * this.voronoiUpscaleConstant]));
-
-	            this.gl.uniform1i(this.output.uniforms.intermediateSampler, 2);
-	            this.gl.bindBufferRange(this.gl.TRANSFORM_FEEDBACK_BUFFER, 0, this.buffers.instancedPositionBuffer, start * 3 * 4, end * 3 * 4);
-
-	            this.gl.beginTransformFeedback(this.gl.POINTS);
-	            this.gl.drawArrays(this.gl.POINTS, 0, end - start);
-	            this.gl.endTransformFeedback();
-
-	            this.gl.bindBufferBase(this.gl.TRANSFORM_FEEDBACK_BUFFER, 0, null);
-	        }
-	    }, {
-	        key: 'render',
-	        value: function render() {
-	            this._renderVoronoi(this.frameBuffers.voronoi);
-	            for (var i = 0; i < Math.ceil(this.samples / this.maxTextureSize); i++) {
-	                var start = Math.floor(i * this.maxTextureSize);
-	                var end = Math.min(this.samples, Math.ceil((i + 1) * this.maxTextureSize));
-	                this._renderCentroid(start, end, this.frameBuffers.intermediate);
-	                this._renderOutput(start, end);
-	            }
-	        }
-	    }, {
-	        key: 'getCanvasDOMNode',
-	        value: function getCanvasDOMNode() {
-	            return this.canvas;
-	        }
-	    }]);
-
-	    return VoronoiStipplerWGL2;
-	}();
-
-	window.VoroniRenderer = VoronoiStipplerWGL2;
-
-	exports.default = VoronoiStipplerWGL2;
+	    var reader = new FileReader();
+	    reader.onload = function (aImg) {
+	        return function (e) {
+	            aImg.src = e.target.result;
+	        };
+	    }(img);
+	    reader.readAsDataURL(file);
+
+	    fileValid = true;
+	    if (fileValid) {
+	        submitButton.disabled = false;
+	        fileUploader.disabled = false;
+	    }
+	};
+
+	var handleOnIterate = function handleOnIterate(iterationsLeft) {
+	    console.log(iterationsLeft);
+	    if (iterationsLeft === 0) {
+	        fileUploader.disabled = false;
+	    }
+	};
+
+	var formSubmit = function formSubmit(event) {
+	    event.preventDefault();
+	    submitButton.disabled = true;
+	    fileUploader.disabled = true;
+
+	    var img = document.getElementById("imgpreview");
+	    /* Execute voronoi */
+	    var numStipples = Number(stipplesInput.value);
+	    var numIterations = Number(iterationsInput.value);
+	    var scale = Number(scaleInput.value);
+	    var supersamplingAmount = Number(supersamplingInput.value);
+	    var voroni = new _VoronoiStippler2.default(numStipples, numIterations, img, scale, supersamplingAmount, handleOnIterate);
+	    var canvas = voroni.getCanvasDOMNode();
+	    img.replaceWith(canvas);
+	};
+
+	loadForm.onsubmit = formSubmit;
+	fileUploader.onchange = fileChange;
 
 /***/ },
 /* 2 */
@@ -7244,6 +6653,632 @@
 
 	module.exports = vec2;
 
+
+/***/ },
+/* 12 */
+/***/ function(module, exports, __webpack_require__) {
+
+	'use strict';
+
+	Object.defineProperty(exports, "__esModule", {
+	    value: true
+	});
+
+	var _createClass = function () { function defineProperties(target, props) { for (var i = 0; i < props.length; i++) { var descriptor = props[i]; descriptor.enumerable = descriptor.enumerable || false; descriptor.configurable = true; if ("value" in descriptor) descriptor.writable = true; Object.defineProperty(target, descriptor.key, descriptor); } } return function (Constructor, protoProps, staticProps) { if (protoProps) defineProperties(Constructor.prototype, protoProps); if (staticProps) defineProperties(Constructor, staticProps); return Constructor; }; }();
+
+	var _glMatrix = __webpack_require__(2);
+
+	function _classCallCheck(instance, Constructor) { if (!(instance instanceof Constructor)) { throw new TypeError("Cannot call a class as a function"); } }
+
+	/* Credits to Matt Keeter for this approach https://www.mattkeeter.com/projects/swingline/ */
+
+	var centroidVertexShader = '#version 300 es\n    in vec3 vertexPosition;\n    uniform mat4 modelViewMatrix;\n\n    void main(void) {\n        gl_Position =  modelViewMatrix * vec4(vertexPosition, 1.0);\n    }\n';
+
+	var centroidFragmentShader = '#version 300 es\n    precision highp float;\n    \n    uniform sampler2D imageSampler;\n    uniform sampler2D voronoiSampler;\n    uniform int sampleOffset;\n    uniform int supersampling;\n\n    out vec4 sum;\n      void main(void) {\n        // GLES3.0 is missing layout qualifiers for rounded down fragcoord so round down manually\n        vec4 screen_coords = vec4(floor(gl_FragCoord.x), floor(gl_FragCoord.y), floor(gl_FragCoord.z), floor(gl_FragCoord.w));\n        \n        int thisIndex = int(int(screen_coords.x) + sampleOffset);\n        ivec2 texSize = textureSize(voronoiSampler, 0);\n        sum = vec4(0.0, 0.0, 0.0, 0.0);\n        for(int x = 0; x < texSize.x ; x++){\n            ivec2 texCoord = ivec2(x, int(screen_coords.y));\n            ivec2 texCoordImg = ivec2(x / supersampling, int(screen_coords.y)/ supersampling);\n            vec4 voronoiTexel = texelFetch(voronoiSampler, texCoord, 0);\n            int currentVoronoiIndex = int(255.0f * (voronoiTexel.x + (voronoiTexel.y * 256.0f) + (voronoiTexel.z * 65536.0f)));\n            if(currentVoronoiIndex == thisIndex){\n                vec4 imageTexel = texelFetch(imageSampler, texCoordImg, 0);\n                float weight = 1.0 - 0.30 * imageTexel.x - 0.59 * imageTexel.y - 0.11 * imageTexel.z;\n                weight = 0.01 + weight * 0.99; // give minum weight to avoid divide by zero\n                //weight = 1.0; // For debugging, if we set weight to 1.0 it should spread out evenly\n                sum.x += (float(x) + 0.5) * weight;\n                sum.y += (screen_coords.y + 0.5) * weight;\n                sum.z += weight;\n                sum.w += 1.0;\n            }   \n        }\n        sum.x /= float(texSize.x);\n        sum.y /= float(texSize.y);\n    }\n';
+
+	var outputVertexShader = '#version 300 es\n    precision highp float;\n    uniform sampler2D intermediateSampler;\n    in float outputIndex;\n    out vec3 centroidPos;\n    void main(void) {\n        ivec2 texSize = textureSize(intermediateSampler, 0);\n        float weight = 0.0;\n        float count = 0.0;\n        /* Accumulate summing over columns */\n        float ix = 0.0;\n        float iy = 0.0;\n        centroidPos = vec3(0.0f, 0.0f, 0.0f);\n        for(int y = 0; y < texSize.y; y++){\n            ivec2 texCoord = ivec2(int(outputIndex), y);\n            vec4 intermediateTexel = texelFetch(intermediateSampler, texCoord, 0);\n            ix += intermediateTexel.x;\n            iy += intermediateTexel.y;\n            weight += intermediateTexel.z; \n            count += intermediateTexel.w;\n        }\n        ix /= weight;\n        iy /= weight;\n        weight /= count;\n        centroidPos = vec3(\n            ix * 2.0 - 1.0,\n            iy * 2.0 - 1.0,\n            weight\n        );\n    }\n';
+
+	/* intel drivers have no default fragment shader for feedback transforms 
+	 * http://stackoverflow.com/questions/38712224/is-fragment-shader-necessary-in-intel-hd-graphic-card */
+	var blankFragmentShader = '#version 300 es\n    precision highp float;\n    out vec4 outputColor;\n\n    void main(void) {\n        outputColor = vec4(0.0, 0.0, 0.0, 0.0);\n    }\n';
+
+	var voronoiVertexShader = '#version 300 es\n    precision highp float;\n    layout (location = 0) in vec2 instancedPosition;\n    layout (location = 1) in vec3 vertexPosition;\n\n    out vec3 indexAsColor;\n    uniform float aspectRatio;\n\n    void main(void) {\n        gl_Position = vec4(\n            vertexPosition.x + instancedPosition.x,\n            vertexPosition.y * aspectRatio + instancedPosition.y, \n            vertexPosition.z,\n            1.0f\n        );\n        indexAsColor = vec3(\n            float(gl_InstanceID % 256) / 255.0f, \n            float((gl_InstanceID / 256) % 256) /255.0f, \n            float((gl_InstanceID / 65536) % 256) /255.0f);\n    }\n';
+
+	var voronoiFragmentShader = '#version 300 es\n    precision highp float;\n    \n    in vec3 indexAsColor;\n    out vec4 outputColor;\n\n    void main(void) { \n        outputColor =  vec4(indexAsColor, 1.0);\n    }\n';
+
+	var finalOutputFragmentShader = '#version 300 es\n    precision highp float;\n        out vec4 outputColor;\n\n    void main(void) { \n        outputColor =  vec4(0.0, 0.0, 0.0, 1.0);\n    }\n';
+
+	var finalOutputVertexShader = '#version 300 es\n    precision highp float;\n    layout (location = 0) in vec3 instancedPosition;\n    layout (location = 1) in vec3 vertexPosition;\n   \n    uniform vec2 scaleFactor;\n\n    void main(void) {\n        gl_Position = vec4(\n            vertexPosition.x * instancedPosition.z * scaleFactor.x + instancedPosition.x,\n            vertexPosition.y * instancedPosition.z * scaleFactor.y + instancedPosition.y, \n            vertexPosition.z ,\n            1.0f\n        );\n    }\n';
+
+	var VoronoiStipplerWGL2 = function () {
+	    /**
+	     * Creates cone with the given number of edges parametrically.
+	     * @param {Number} samples the number of stipples to render with
+	     * @param {Number} iterations The number of iterations (move generators to centroids) to do 
+	     * @param {Element} inputImage A LOADED image DOM Element
+	     * @param {Number} scale The maximum width of a stipple
+	     * @param {Number} supersamplingAmount The amount of supersampling to do, must be a power of 2
+	     * @param {Function} onIterate A function that is called with the signature (Number) => any on each iteration.
+	    */
+	    function VoronoiStipplerWGL2(samples, iterations, inputImage, scale, supersamplingAmount, onIterate) {
+	        _classCallCheck(this, VoronoiStipplerWGL2);
+
+	        this.inputImage = inputImage;
+	        console.log(supersamplingAmount);
+	        this.supersampling = supersamplingAmount;
+	        this.onIterate = onIterate;
+	        this.scale = scale;
+	        this.iterations = iterations;
+	        this.samples = samples;
+	        this._init();
+	    }
+
+	    _createClass(VoronoiStipplerWGL2, [{
+	        key: '_init',
+	        value: function _init() {
+	            this.coneResolution = 100;
+	            /* Init offscreen canvas */
+	            this.canvas = document.createElement("canvas");
+	            this.canvas.id = 'renderCanvas';
+	            this.canvas.width = 0;
+	            this.canvas.height = 1;
+
+	            this.gl = this.canvas.getContext('webgl2', { preserveDrawingBuffer: true, antialias: true });
+	            this.textures = {};
+	            this.buffers = {};
+	            this.centroid = { attributes: {}, uniforms: {} };
+	            this.voronoi = { attributes: {}, uniforms: {} };
+	            this.output = { attributes: {}, uniforms: {} };
+	            this.finalOutput = { attributes: {}, uniforms: {} };
+	            this.frameBuffers = {};
+	            this._enableExtensions();
+	            this._genInitialData();
+	            this._initGL();
+	            this.tick();
+	        }
+	    }, {
+	        key: '_enableExtensions',
+	        value: function _enableExtensions() {
+	            var float_texture_ext = this.gl.getExtension('EXT_color_buffer_float');
+	            if (!float_texture_ext) {
+	                console.error("This requires the EXT_color_buffer_float extension to operate!");
+	            }
+	        }
+	    }, {
+	        key: '_initGL',
+	        value: function _initGL() {
+	            this.canvas.width = Math.max(this.inputImage.width);
+	            this.canvas.height = this.inputImage.height;
+
+	            this.maxTextureSize = this.gl.getParameter(this.gl.MAX_TEXTURE_SIZE);
+
+	            this._initShaders();
+
+	            /* Create Uniforms/Attributes*/
+	            this._getUniformLocations();
+	            this._getAttributeLocations();
+	            this._getBuffers();
+
+	            /* Bind data*/
+	            this._bindDataToBuffers();
+
+	            /* Setup Textures */
+	            this._initImageAsTexture();
+
+	            /* Setup Framebuffers*/
+	            this._initFrameBuffers();
+
+	            /* GL state toggles*/
+	            this.gl.clearColor(0.0, 0.0, 0.0, 1.0);
+	            this.gl.enable(this.gl.DEPTH_TEST);
+	            this.gl.depthFunc(this.gl.LEQUAL);
+	        }
+	    }, {
+	        key: '_initFrameBuffers',
+	        value: function _initFrameBuffers() {
+	            this.gl.pixelStorei(this.gl.UNPACK_ALIGNMENT, 1);
+	            this.gl.activeTexture(this.gl.TEXTURE1);
+	            this.textures.voronoiTexture = this.gl.createTexture();
+	            this.gl.bindTexture(this.gl.TEXTURE_2D, this.textures.voronoiTexture);
+	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
+	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
+	            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.inputImage.width * this.supersampling, this.inputImage.height * this.supersampling, 0, this.gl.RGBA, this.gl.UNSIGNED_BYTE, null);
+
+	            this.frameBuffers.voronoi = this.gl.createFramebuffer();
+	            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.frameBuffers.voronoi);
+	            this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.textures.voronoiTexture, 0);
+
+	            /* Voronoi diagram needs a depthbuffer because of how the cone algorithm works */
+	            var renderbuffer = this.gl.createRenderbuffer();
+	            this.gl.bindRenderbuffer(this.gl.RENDERBUFFER, renderbuffer);
+	            this.gl.renderbufferStorage(this.gl.RENDERBUFFER, this.gl.DEPTH_COMPONENT32F, this.inputImage.width * this.supersampling, this.inputImage.height * this.supersampling);
+	            this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.textures.voronoiTexture, 0);
+	            this.gl.framebufferRenderbuffer(this.gl.FRAMEBUFFER, this.gl.DEPTH_ATTACHMENT, this.gl.RENDERBUFFER, renderbuffer);
+
+	            this.gl.activeTexture(this.gl.TEXTURE2);
+	            this.textures.intermediateTexture = this.gl.createTexture();
+	            this.gl.bindTexture(this.gl.TEXTURE_2D, this.textures.intermediateTexture);
+	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
+	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
+	            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA32F, Math.min(this.samples, this.maxTextureSize), this.inputImage.height * this.supersampling, 0, this.gl.RGBA, this.gl.FLOAT, null);
+	            this.frameBuffers.intermediate = this.gl.createFramebuffer();
+	            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.frameBuffers.intermediate);
+	            this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.textures.intermediateTexture, 0);
+	        }
+	    }, {
+	        key: '_initImageAsTexture',
+	        value: function _initImageAsTexture() {
+	            this.gl.activeTexture(this.gl.TEXTURE0);
+	            this.textures.imageTexture = this.gl.createTexture();
+	            this.gl.bindTexture(this.gl.TEXTURE_2D, this.textures.imageTexture);
+	            this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, true);
+	            this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA, this.gl.RGBA, this.gl.UNSIGNED_BYTE, this.inputImage);
+	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
+	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
+	            /* npt textures */
+	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_S, this.gl.CLAMP_TO_EDGE);
+	            this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
+	        }
+
+	        /**
+	         * Binds string as a shader to the gl context.
+	         * @param {String} str The string to be bound as a shader.
+	         * @param {Number} shaderType Either gl.vertexShader or gl.fragmentShader
+	         * @return {WebGLShader} Newly bound shader.
+	        */
+
+	    }, {
+	        key: '_getShader',
+	        value: function _getShader(str, shaderType) {
+	            var shader = this.gl.createShader(shaderType);
+
+	            this.gl.shaderSource(shader, str);
+	            this.gl.compileShader(shader);
+
+	            if (!this.gl.getShaderParameter(shader, this.gl.COMPILE_STATUS)) {
+	                console.error(this.gl.getShaderInfoLog(shader));
+	                return null;
+	            }
+	            return shader;
+	        }
+
+	        /**
+	         * Initializes the shader program
+	         */
+
+	    }, {
+	        key: '_initShaders',
+	        value: function _initShaders() {
+	            this._initCentroidProgram();
+	            this._initVoronoiProgram();
+	            this._initOutputProgram();
+	            this._initFinalOutputProgram();
+	        }
+	    }, {
+	        key: '_initCentroidProgram',
+	        value: function _initCentroidProgram() {
+	            /* Create shaders and shader program */
+	            var vertexShader = this._getShader(centroidVertexShader, this.gl.VERTEX_SHADER);
+	            var fragmentShader = this._getShader(centroidFragmentShader, this.gl.FRAGMENT_SHADER);
+
+	            this.centroid.shaderProgram = this.gl.createProgram();
+
+	            this.gl.attachShader(this.centroid.shaderProgram, vertexShader);
+	            this.gl.attachShader(this.centroid.shaderProgram, fragmentShader);
+	            this.gl.linkProgram(this.centroid.shaderProgram);
+
+	            if (!this.gl.getProgramParameter(this.centroid.shaderProgram, this.gl.LINK_STATUS)) {
+	                console.error("Could not init centroid shaders.");
+	                return null;
+	            }
+	        }
+	    }, {
+	        key: '_initOutputProgram',
+	        value: function _initOutputProgram() {
+	            /* Create shaders and shader program */
+	            var vertexShader = this._getShader(outputVertexShader, this.gl.VERTEX_SHADER);
+	            var fragmentShader = this._getShader(blankFragmentShader, this.gl.FRAGMENT_SHADER);
+
+	            this.output.shaderProgram = this.gl.createProgram();
+
+	            this.gl.attachShader(this.output.shaderProgram, vertexShader);
+	            this.gl.attachShader(this.output.shaderProgram, fragmentShader);
+
+	            /* Capture output in feedback buffer */
+	            this.gl.transformFeedbackVaryings(this.output.shaderProgram, ['centroidPos'], this.gl.INTERLEAVED_ATTRIBS);
+
+	            this.gl.linkProgram(this.output.shaderProgram);
+
+	            if (!this.gl.getProgramParameter(this.output.shaderProgram, this.gl.LINK_STATUS)) {
+	                console.error("Could not init output shaders.");
+	                return null;
+	            }
+	        }
+	    }, {
+	        key: '_initVoronoiProgram',
+	        value: function _initVoronoiProgram() {
+	            var vertexShader = this._getShader(voronoiVertexShader, this.gl.VERTEX_SHADER);
+	            var fragmentShader = this._getShader(voronoiFragmentShader, this.gl.FRAGMENT_SHADER);
+
+	            this.voronoi.shaderProgram = this.gl.createProgram();
+
+	            this.gl.attachShader(this.voronoi.shaderProgram, vertexShader);
+	            this.gl.attachShader(this.voronoi.shaderProgram, fragmentShader);
+	            this.gl.linkProgram(this.voronoi.shaderProgram);
+
+	            if (!this.gl.getProgramParameter(this.voronoi.shaderProgram, this.gl.LINK_STATUS)) {
+	                console.error("Could not init voronoi shaders.");
+	                return null;
+	            }
+	        }
+	    }, {
+	        key: '_initFinalOutputProgram',
+	        value: function _initFinalOutputProgram() {
+	            var vertexShader = this._getShader(finalOutputVertexShader, this.gl.VERTEX_SHADER);
+	            var fragmentShader = this._getShader(finalOutputFragmentShader, this.gl.FRAGMENT_SHADER);
+
+	            this.finalOutput.shaderProgram = this.gl.createProgram();
+
+	            this.gl.attachShader(this.finalOutput.shaderProgram, vertexShader);
+	            this.gl.attachShader(this.finalOutput.shaderProgram, fragmentShader);
+	            this.gl.linkProgram(this.finalOutput.shaderProgram);
+
+	            if (!this.gl.getProgramParameter(this.finalOutput.shaderProgram, this.gl.LINK_STATUS)) {
+	                console.error("Could not init finaloutput shaders.");
+	                return null;
+	            }
+	        }
+
+	        /**
+	         * Create quad
+	         * @param {Number} x x-coordinate of the center on the current coordinate system
+	         * @param {Number} y x-coordinate of the center on the current coordinate system
+	         * @param {Number} edges The number of edges for the base to have (not the total)
+	        */
+
+	    }, {
+	        key: '_createQuad',
+	        value: function _createQuad(x, y, edges) {
+	            return [-1.0, -1.0, -1.0, -1.0, 1.0, -1.0, 1.0, -1.0, -1.0, 1.0, 1.0, -1.0];
+	        }
+
+	        /**
+	         * Creates cone with the given number of edges parametrically.
+	         * @param {Number} x x-coordinate of the center on the current coordinate system
+	         * @param {Number} y x-coordinate of the center on the current coordinate system
+	         * @param {Number} edges The number of edges for the base to have (not the total)
+	        */
+
+	    }, {
+	        key: '_createCone',
+	        value: function _createCone(x, y, edges) {
+	            var pi = Math.PI;
+	            var vertices = new Array(edges * (3 + 2));
+
+	            /* Center of cone */
+	            vertices[0] = x;
+	            vertices[1] = y;
+	            vertices[2] = -1;
+
+	            for (var i = 1; i <= edges + 2; i++) {
+	                var ratio = i / edges;
+	                vertices[i * 3] = x + Math.sin(2 * pi * ratio);
+	                vertices[i * 3 + 1] = y + Math.cos(2 * pi * ratio);
+	                vertices[i * 3 + 2] = 1;
+	            }
+	            return vertices;
+	        }
+	        /**
+	         * Inserts attribute locations into this.centroid.attributes
+	         */
+
+	    }, {
+	        key: '_getAttributeLocations',
+	        value: function _getAttributeLocations() {
+	            this.voronoi.attributes.instancedPosition = this.gl.getAttribLocation(this.voronoi.shaderProgram, "instancedPosition");
+	            this.gl.enableVertexAttribArray(this.voronoi.attributes.instancedPosition);
+
+	            this.finalOutput.attributes.instancedPosition = this.gl.getAttribLocation(this.finalOutput.shaderProgram, "instancedPosition");
+	            this.gl.enableVertexAttribArray(this.finalOutput.attributes.instancedPosition);
+
+	            this.output.attributes.outputIndex = this.gl.getAttribLocation(this.output.shaderProgram, "outputIndex");
+	            this.gl.enableVertexAttribArray(this.output.attributes.outputIndex);
+
+	            this.voronoi.attributes.vertexPosition = this.gl.getAttribLocation(this.voronoi.shaderProgram, "vertexPosition");
+	            this.gl.enableVertexAttribArray(this.voronoi.attributes.vertexPosition);
+
+	            this.centroid.attributes.vertexPosition = this.gl.getAttribLocation(this.centroid.shaderProgram, "vertexPosition");
+	            this.gl.enableVertexAttribArray(this.centroid.attributes.vertexPosition);
+
+	            this.finalOutput.attributes.vertexPosition = this.gl.getAttribLocation(this.finalOutput.shaderProgram, "vertexPosition");
+	            this.gl.enableVertexAttribArray(this.finalOutput.attributes.vertexPosition);
+	        }
+
+	        /**
+	         * Inserts uniform locations into this.centroid.attributes
+	         */
+
+	    }, {
+	        key: '_getUniformLocations',
+	        value: function _getUniformLocations() {
+	            this.centroid.uniforms.modelViewMatrix = this.gl.getUniformLocation(this.centroid.shaderProgram, "modelViewMatrix");
+	            this.centroid.uniforms.imageSampler = this.gl.getUniformLocation(this.centroid.shaderProgram, "imageSampler");
+	            this.centroid.uniforms.voronoiSampler = this.gl.getUniformLocation(this.centroid.shaderProgram, "voronoiSampler");
+	            this.centroid.uniforms.sampleOffset = this.gl.getUniformLocation(this.centroid.shaderProgram, "sampleOffset");
+	            this.centroid.uniforms.supersampling = this.gl.getUniformLocation(this.centroid.shaderProgram, "supersampling");
+
+	            this.output.uniforms.modelViewMatrix = this.gl.getUniformLocation(this.output.shaderProgram, "modelViewMatrix");
+	            this.output.uniforms.intermediateSampler = this.gl.getUniformLocation(this.output.shaderProgram, "intermediateSampler");
+	            this.output.uniforms.windowDimensions = this.gl.getUniformLocation(this.output.shaderProgram, "windowDimensions");
+	            this.output.uniforms.supersampling = this.gl.getUniformLocation(this.output.shaderProgram, "supersampling");
+
+	            this.voronoi.uniforms.aspectRatio = this.gl.getUniformLocation(this.voronoi.shaderProgram, "aspectRatio");
+	            this.voronoi.uniforms.vertexColor = this.gl.getUniformLocation(this.voronoi.shaderProgram, "vertexColor");
+
+	            this.finalOutput.uniforms.scaleFactor = this.gl.getUniformLocation(this.finalOutput.shaderProgram, "scaleFactor");
+	        }
+
+	        /**
+	         * Gets buffers and inserts them into this.buffers
+	         */
+
+	    }, {
+	        key: '_getBuffers',
+	        value: function _getBuffers() {
+	            this.buffers.quadPositionBuffer = this.gl.createBuffer();
+	            this.buffers.conePositionBuffer = this.gl.createBuffer();
+	            this.buffers.instancedPositionBuffer = this.gl.createBuffer();
+	            this.buffers.outputIndiceBuffer = this.gl.createBuffer();
+	        }
+
+	        /**
+	         * Generates geometry and color data then binds it to the appropriate buffers
+	         */
+
+	    }, {
+	        key: '_bindDataToBuffers',
+	        value: function _bindDataToBuffers() {
+	            var _this = this;
+
+	            /* Bind Quad Data*/
+	            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.quadPositionBuffer);
+	            var quadVertices = this._createQuad();
+	            this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array(quadVertices), this.gl.STATIC_DRAW);
+
+	            /* Bind Instanced Cone Positions */
+	            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.instancedPositionBuffer);
+	            var points = [];
+	            this.points.forEach(function (point) {
+	                points.push(point.x / _this.inputImage.width * 2.0 - 1);
+	                points.push(1 - point.y / _this.inputImage.height * 2.0);
+	                points.push(0.8);
+	            });
+
+	            this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array(points), this.gl.STATIC_DRAW);
+
+	            /* Bind Cone Data*/
+	            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.conePositionBuffer);
+	            var coneVertices = this._createCone(0, 0, this.coneResolution);
+	            this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array(coneVertices), this.gl.STATIC_DRAW);
+
+	            /* Bind output indice data*/
+	            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.outputIndiceBuffer);
+	            var indices = new Array(this.samples).fill(1).map(function (item, idx) {
+	                return idx;
+	            });
+	            this.gl.bufferData(this.gl.ARRAY_BUFFER, new Uint32Array(indices), this.gl.STATIC_DRAW);
+	        }
+	    }, {
+	        key: 'tick',
+	        value: function tick() {
+	            var _this2 = this;
+
+	            this.iterations--;
+	            if (this.iterations > 0) {
+	                setTimeout(function () {
+	                    return requestAnimationFrame(function () {
+	                        return _this2.tick();
+	                    });
+	                }, 10);
+	                this.render();
+
+	                this._renderFinalOutput();
+	                //this._renderVoronoi(null);
+	            } else {
+	                this._drawPointsOntoCanvas();
+	            }
+	            this.onIterate(this.iterations);
+	        }
+	    }, {
+	        key: '_drawPointsOntoCanvas',
+	        value: function _drawPointsOntoCanvas() {
+	            this._renderFinalOutput();
+	        }
+
+	        /* Generates intial data with rejection sampling */
+
+	    }, {
+	        key: '_genInitialData',
+	        value: function _genInitialData() {
+	            this.points = [];
+	            /* Use temporary canvas to load image to get luminesence values.*/
+	            var tempCanvas = document.createElement('canvas');
+	            tempCanvas.width = this.inputImage.width;
+	            tempCanvas.height = this.inputImage.height;
+	            var ctx = tempCanvas.getContext('2d');
+	            ctx.drawImage(this.inputImage, 0, 0);
+	            var imageData = ctx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+	            var i = 0;
+	            while (i < this.samples) {
+	                var x = Math.random() * this.inputImage.width;
+	                var y = Math.random() * this.inputImage.height;
+	                var index = Math.floor(x) * 4 + Math.floor(y) * this.inputImage.width * 4;
+	                var red = imageData.data[index];
+	                var blue = imageData.data[index + 1];
+	                var green = imageData.data[index + 2];
+
+	                if (Math.random() * 255 > red * 0.30 + 0.59 * blue + 0.11 * green) {
+	                    this.points.push({ x: x, y: y, weight: 255 });
+	                    i++;
+	                }
+	            }
+	        }
+
+	        /**
+	         * Encodes an int as a OpenGL formatted float.
+	         * @param {Number} i Must be a whole number
+	         * @return {Float32Array} A 3 dimensional array representing i
+	        */
+
+	    }, {
+	        key: '_encodeIntToRGB',
+	        value: function _encodeIntToRGB(i) {
+	            var r = i % 256;
+	            var g = Math.floor(i / 256) % 256;
+	            var b = Math.floor(i / 65536) % 256;
+	            return new Float32Array([r / 255.0, g / 255.0, b / 255.0]);
+	        }
+	    }, {
+	        key: '_renderFinalOutput',
+	        value: function _renderFinalOutput() {
+	            this.gl.viewport(0, 0, this.inputImage.width, this.inputImage.height);
+	            this.gl.clearColor(1.0, 1.0, 1.0, 1.0);
+	            this.gl.useProgram(this.finalOutput.shaderProgram);
+
+	            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+	            this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
+	            this.gl.uniform2f(this.finalOutput.uniforms.scaleFactor, this.scale / this.inputImage.width, this.scale / this.inputImage.height);
+
+	            /* Render Voronoi to framebuffer */
+	            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+	            this.gl.viewport(0, 0, this.inputImage.width, this.inputImage.height);
+
+	            /* Bind instanced positions*/
+	            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.instancedPositionBuffer);
+	            this.gl.vertexAttribPointer(this.finalOutput.attributes.instancedPosition, 3, this.gl.FLOAT, false, 0, 0);
+	            this.gl.vertexAttribDivisor(this.finalOutput.attributes.instancedPosition, 1);
+
+	            /* Bind Cone */
+	            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.conePositionBuffer);
+	            this.gl.vertexAttribPointer(this.finalOutput.attributes.vertexPosition, 3, this.gl.FLOAT, false, 0, 0);
+	            this.gl.vertexAttribDivisor(this.finalOutput.attributes.vertexPosition, 0);
+
+	            this.gl.drawArraysInstanced(this.gl.TRIANGLE_FAN, 0, this.coneResolution + 2, this.samples);
+
+	            /* this was originally done in webgl 1.0 which has no vaos */
+	            this.gl.vertexAttribDivisor(this.voronoi.attributes.instancedPosition, 0);
+	            this.gl.clearColor(0.0, 0.0, 0.0, 1.0);
+	        }
+
+	        /**
+	         * Encodes the current points as a Voronoi diagram into the framebuffer.
+	        */
+
+	    }, {
+	        key: '_renderVoronoi',
+	        value: function _renderVoronoi(framebuffer) {
+	            this.gl.useProgram(this.voronoi.shaderProgram);
+
+	            /* Render Voronoi to framebuffer */
+	            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, framebuffer);
+
+	            this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
+	            this.gl.viewport(0, 0, this.inputImage.width * this.supersampling, this.inputImage.height * this.supersampling);
+
+	            this.gl.uniform1f(this.voronoi.uniforms.aspectRatio, this.inputImage.width / this.inputImage.height);
+
+	            /* Bind instanced positions*/
+	            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.instancedPositionBuffer);
+	            this.gl.vertexAttribPointer(this.voronoi.attributes.instancedPosition, 3, this.gl.FLOAT, false, 0, 0);
+	            this.gl.vertexAttribDivisor(this.voronoi.attributes.instancedPosition, 1);
+
+	            /* Bind Cone */
+	            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.conePositionBuffer);
+	            this.gl.vertexAttribPointer(this.voronoi.attributes.vertexPosition, 3, this.gl.FLOAT, false, 0, 0);
+	            this.gl.vertexAttribDivisor(this.voronoi.attributes.vertexPosition, 0);
+
+	            this.gl.drawArraysInstanced(this.gl.TRIANGLE_FAN, 0, this.coneResolution + 2, this.samples);
+
+	            /* this was originally done in webgl 1.0 which has no vaos */
+	            this.gl.vertexAttribDivisor(this.voronoi.attributes.instancedPosition, 0);
+	        }
+
+	        /* Renders a 1xcells textures containing the centroid of each cell of the Voronoi diagram
+	         * encoded in the colors of each pixel */
+
+	    }, {
+	        key: '_renderCentroid',
+	        value: function _renderCentroid(start, end, framebuffer) {
+	            this.gl.useProgram(this.centroid.shaderProgram);
+
+	            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, framebuffer);
+	            this.gl.viewport(0, 0, end - start, this.inputImage.height * this.supersampling);
+	            this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
+
+	            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.quadPositionBuffer);
+	            this.gl.vertexAttribPointer(this.centroid.attributes.vertexPosition, 3, this.gl.FLOAT, false, 0, 0);
+
+	            /* Setup model view matrix for next voroni point */
+	            var modelViewMatrix = _glMatrix.mat4.create();
+	            this.gl.uniformMatrix4fv(this.centroid.uniforms.modelViewMatrix, false, modelViewMatrix);
+	            this.gl.uniform1i(this.centroid.uniforms.sampleOffset, start);
+
+	            /* Setup Texture Samplers */
+	            this.gl.uniform1i(this.centroid.uniforms.imageSampler, 0);
+	            this.gl.uniform1i(this.centroid.uniforms.voronoiSampler, 1);
+	            this.gl.uniform1i(this.centroid.uniforms.supersampling, this.supersampling);
+	            this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
+	        }
+
+	        /* Renders the 1xsamples output of the centroids to a canvas */
+
+	    }, {
+	        key: '_renderOutput',
+	        value: function _renderOutput(start, end) {
+	            this.gl.useProgram(this.output.shaderProgram);
+
+	            this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+	            this.gl.viewport(0, 0, end - start, 1);
+	            this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
+
+	            this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.outputIndiceBuffer);
+	            this.gl.vertexAttribPointer(this.output.attributes.outputIndex, 1, this.gl.UNSIGNED_INT, false, 0, 0);
+
+	            this.gl.uniform1i(this.output.uniforms.intermediateSampler, 2);
+	            this.gl.bindBufferRange(this.gl.TRANSFORM_FEEDBACK_BUFFER, 0, this.buffers.instancedPositionBuffer, start * 3 * 4, end * 3 * 4);
+
+	            this.gl.beginTransformFeedback(this.gl.POINTS);
+	            this.gl.drawArrays(this.gl.POINTS, 0, end - start);
+	            this.gl.endTransformFeedback();
+
+	            this.gl.bindBufferBase(this.gl.TRANSFORM_FEEDBACK_BUFFER, 0, null);
+	        }
+	    }, {
+	        key: 'render',
+	        value: function render() {
+	            this._renderVoronoi(this.frameBuffers.voronoi);
+	            for (var i = 0; i < Math.ceil(this.samples / this.maxTextureSize); i++) {
+	                var start = Math.floor(i * this.maxTextureSize);
+	                var end = Math.min(this.samples, Math.ceil((i + 1) * this.maxTextureSize));
+	                this._renderCentroid(start, end, this.frameBuffers.intermediate);
+	                this._renderOutput(start, end);
+	            }
+	        }
+	    }, {
+	        key: 'getCanvasDOMNode',
+	        value: function getCanvasDOMNode() {
+	            return this.canvas;
+	        }
+	    }]);
+
+	    return VoronoiStipplerWGL2;
+	}();
+
+	exports.default = VoronoiStipplerWGL2;
 
 /***/ }
 /******/ ]);
