@@ -18,13 +18,13 @@ const centroidFragmentShader = `#version 300 es
     
     uniform sampler2D imageSampler;
     uniform sampler2D voronoiSampler;
-    uniform vec2 windowDimensions;
+    uniform int sampleOffset;
     out vec4 sum;
       void main(void) {
         // GLES3.0 is missing layout qualifiers for rounded down fragcoord so round down manually
         vec4 screen_coords = vec4(floor(gl_FragCoord.x), floor(gl_FragCoord.y), floor(gl_FragCoord.z), floor(gl_FragCoord.w));
         
-        int thisIndex = int(screen_coords.x);
+        int thisIndex = int(int(screen_coords.x) + sampleOffset);
         ivec2 texSize = textureSize(voronoiSampler, 0);
         sum = vec4(0.0, 0.0, 0.0, 0.0);
         for(int x = 0; x < texSize.x ; x++){
@@ -33,14 +33,14 @@ const centroidFragmentShader = `#version 300 es
             int currentVoronoiIndex = int(255.0f * (voronoiTexel.x + (voronoiTexel.y * 256.0f) + (voronoiTexel.z * 65536.0f)));
             if(currentVoronoiIndex == thisIndex){
                 vec4 imageTexel = texelFetch(imageSampler, texCoord, 0);
-                float weight = 1.0 - 0.299* imageTexel.x - 0.587 * imageTexel.y - 0.114 * imageTexel.z;
+                float weight = 1.0 - 0.30 * imageTexel.x - 0.59 * imageTexel.y - 0.11 * imageTexel.z;
                 weight = 0.01 + weight * 0.99; // give minum weight to avoid divide by zero
                 //weight = 1.0; // For debugging, if we set weight to 1.0 it should spread out evenly
                 sum.x += (float(x) + 0.5) * weight;
                 sum.y += (screen_coords.y + 0.5) * weight;
                 sum.z += weight;
                 sum.w += 1.0;
-            }
+            }   
         }
         sum.x /= float(texSize.x);
         sum.y /= float(texSize.y);
@@ -76,7 +76,7 @@ const outputVertexShader = `#version 300 es
         centroidPos = vec3(
             ix * 2.0 - 1.0,
             iy * 2.0 - 1.0,
-            0
+            weight
         );
     }
 `;
@@ -124,20 +124,24 @@ const finalOutputFragmentShader = `#version 300 es
         out vec4 outputColor;
 
     void main(void) { 
-        outputColor =  vec4(1.0, 0.0, 0.0, 1.0);
+        outputColor =  vec4(0.0, 0.0, 0.0, 1.0);
     }
 `;
 
 const finalOutputVertexShader  = `#version 300 es
     precision highp float;
-    layout (location = 0) in vec2 instancedPosition;
+    layout (location = 0) in vec3 instancedPosition;
     layout (location = 1) in vec3 vertexPosition;
+   
+    uniform float scaleFactor;
 
     void main(void) {
         gl_Position = vec4(
-            vertexPosition.x * 0.005 + instancedPosition.x
-            (vertexPositiony * 0.005 + instancedPosition), 
-            vertexPosition.z * 0.005, 1.0f);
+            vertexPosition.x * instancedPosition.z * scaleFactor + instancedPosition.x,
+            vertexPosition.y * instancedPosition.z * scaleFactor + instancedPosition.y, 
+            vertexPosition.z ,
+            1.0f
+        );
     }
 `;
 
@@ -146,20 +150,15 @@ class VoronoiStipplerWGL2{
      * @param {Number} Samples
      * @param {Boolean} debug
      */
-    constructor(samples, iterations, debug){
-        this.imageLoaded = false;
+    constructor(samples, iterations, inputImage, scale, debug){
+        this.inputImage = inputImage;
         this.debug = debug;
+        this.scale = scale;
         this.iterations = iterations;
         this.samples = samples;
         this._init();
     }
 
-    _onReady(){
-        this._enableExtensions();
-        this._genInitialData();
-        this._initGL();
-        this.tick();
-    }
     _init(){
         this.coneResolution = 100;
         /* Init offscreen canvas */
@@ -167,7 +166,7 @@ class VoronoiStipplerWGL2{
         this.canvas.width = 0;
         this.canvas.height = 1;
 
-        this.gl = this.canvas.getContext('webgl2', {preserveDrawingBuffer: true, antialias: false});
+        this.gl = this.canvas.getContext('webgl2', {preserveDrawingBuffer: true, antialias: true });
         this.textures = {};
         this.buffers = {};
         this.centroid = {attributes: {}, uniforms: {}};
@@ -176,7 +175,10 @@ class VoronoiStipplerWGL2{
         this.finalOutput = {attributes: {}, uniforms: {}};
         this.frameBuffers = {};
         this.voronoiUpscaleConstant = 1; //supersampling amount
-        this._loadImage(() => this._onReady());
+        this._enableExtensions();
+        this._genInitialData();
+        this._initGL();
+        this.tick();
     }
     _enableExtensions(){
         const float_texture_ext = this.gl.getExtension('EXT_color_buffer_float');
@@ -185,8 +187,10 @@ class VoronoiStipplerWGL2{
         } 
     }
     _initGL(){
-        this.canvas.width = Math.max(this.inputImage.width * this.voronoiUpscaleConstant, this.samples);
+        this.canvas.width = Math.max(this.inputImage.width);
         this.canvas.height = this.inputImage.height* this.voronoiUpscaleConstant;
+
+        this.maxTextureSize = this.gl.getParameter(this.gl.MAX_TEXTURE_SIZE);
 
         this._initShaders();
 
@@ -208,14 +212,6 @@ class VoronoiStipplerWGL2{
         this.gl.clearColor(0.0, 0.0, 0.0, 1.0);
         this.gl.enable(this.gl.DEPTH_TEST);
         this.gl.depthFunc(this.gl.LEQUAL);
-    }
-    _loadImage(callback){
-        this.inputImage = new Image();
-        this.inputImage.src = "static/a.jpg";
-        this.inputImage.onload = () => {
-            this.imageLoaded = true;
-            callback();
-        }
     }
     
     _initFrameBuffers(){
@@ -248,8 +244,7 @@ class VoronoiStipplerWGL2{
         this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_WRAP_T, this.gl.CLAMP_TO_EDGE);
         this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MIN_FILTER, this.gl.NEAREST);
         this.gl.texParameteri(this.gl.TEXTURE_2D, this.gl.TEXTURE_MAG_FILTER, this.gl.NEAREST);
-        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA32F, this.samples, this.inputImage.height  * this.voronoiUpscaleConstant, 0, this.gl.RGBA, this.gl.FLOAT, null);
-        
+        this.gl.texImage2D(this.gl.TEXTURE_2D, 0, this.gl.RGBA32F, Math.min(this.samples, this.maxTextureSize), this.inputImage.height  * this.voronoiUpscaleConstant, 0, this.gl.RGBA, this.gl.FLOAT, null);
         this.frameBuffers.intermediate = this.gl.createFramebuffer();
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, this.frameBuffers.intermediate);
         this.gl.framebufferTexture2D(this.gl.FRAMEBUFFER, this.gl.COLOR_ATTACHMENT0, this.gl.TEXTURE_2D, this.textures.intermediateTexture, 0);
@@ -259,7 +254,7 @@ class VoronoiStipplerWGL2{
         this.gl.activeTexture(this.gl.TEXTURE0);
         this.textures.imageTexture = this.gl.createTexture();
         this.gl.bindTexture(this.gl.TEXTURE_2D, this.textures.imageTexture);
-        //this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, true);
+        this.gl.pixelStorei(this.gl.UNPACK_FLIP_Y_WEBGL, true);
         this.gl.texImage2D(
             this.gl.TEXTURE_2D,
             0,
@@ -379,7 +374,6 @@ class VoronoiStipplerWGL2{
      * @param {Number} x x-coordinate of the center on the current coordinate system
      * @param {Number} y x-coordinate of the center on the current coordinate system
      * @param {Number} edges The number of edges for the base to have (not the total)
-     * @return {???} 
     */
     _createQuad(x, y, edges){
         return [
@@ -395,7 +389,6 @@ class VoronoiStipplerWGL2{
      * @param {Number} x x-coordinate of the center on the current coordinate system
      * @param {Number} y x-coordinate of the center on the current coordinate system
      * @param {Number} edges The number of edges for the base to have (not the total)
-     * @return {???} 
     */
     _createCone(x, y, edges){
         const pi = Math.PI;
@@ -444,7 +437,7 @@ class VoronoiStipplerWGL2{
          this.centroid.uniforms.modelViewMatrix = this.gl.getUniformLocation(this.centroid.shaderProgram, "modelViewMatrix");
          this.centroid.uniforms.imageSampler = this.gl.getUniformLocation(this.centroid.shaderProgram, "imageSampler");
          this.centroid.uniforms.voronoiSampler = this.gl.getUniformLocation(this.centroid.shaderProgram, "voronoiSampler");
-         this.centroid.uniforms.windowDimensions = this.gl.getUniformLocation(this.centroid.shaderProgram, "windowDimensions");
+         this.centroid.uniforms.sampleOffset = this.gl.getUniformLocation(this.centroid.shaderProgram, "sampleOffset");
          this.centroid.uniforms.voronoiUpscaleConstant = this.gl.getUniformLocation(this.centroid.shaderProgram, "voronoiUpscaleConstant");
 
          this.output.uniforms.modelViewMatrix = this.gl.getUniformLocation(this.output.shaderProgram, "modelViewMatrix");
@@ -455,8 +448,7 @@ class VoronoiStipplerWGL2{
          this.voronoi.uniforms.modelViewMatrix = this.gl.getUniformLocation(this.voronoi.shaderProgram, "modelViewMatrix");
          this.voronoi.uniforms.vertexColor = this.gl.getUniformLocation(this.voronoi.shaderProgram, "vertexColor");
 
-         this.finalOutput.uniforms.modelViewMatrix = this.gl.getUniformLocation(this.finalOutput.shaderProgram, "modelViewMatrix");
-         this.finalOutput.uniforms.vertexColor = this.gl.getUniformLocation(this.finalOutput.shaderProgram, "vertexColor");
+         this.finalOutput.uniforms.scaleFactor = this.gl.getUniformLocation(this.finalOutput.shaderProgram, "scaleFactor");
     }
 
     /**
@@ -483,8 +475,8 @@ class VoronoiStipplerWGL2{
         const points = [];
         this.points.forEach(point => {
             points.push(point.x / this.inputImage.width * 2.0 - 1);
-            points.push(point.y / this.inputImage.height * 2.0 - 1);
-            points.push(0);
+            points.push(1 - point.y / this.inputImage.height * 2.0);
+            points.push(0.8);
         });
 
         this.gl.bufferData(this.gl.ARRAY_BUFFER, new Float32Array(points), this.gl.STATIC_DRAW);
@@ -504,13 +496,11 @@ class VoronoiStipplerWGL2{
         this.iterations--;
         if(this.iterations > 0){
             console.log(`${this.iterations} iterations left`);
-            setTimeout(() => requestAnimationFrame(() => this.tick(), 1000));
+            setTimeout(() => requestAnimationFrame(() => this.tick()),  50);
             this.render();
 
-            const savePoints = this.points;
-            
-            /* Render voronoi as we go */
-            this._renderVoronoi(null);
+            this._renderFinalOutput();
+            //this._renderVoronoi(null);
         }
         else{
             this._drawPointsOntoCanvas();
@@ -553,7 +543,6 @@ class VoronoiStipplerWGL2{
         const tempCanvas = document.createElement('canvas');
         tempCanvas.width = this.inputImage.width * this.voronoiUpscaleConstant;
         tempCanvas.height = this.inputImage.height * this.voronoiUpscaleConstant;
-
         const ctx = tempCanvas.getContext('2d');
         ctx.drawImage(this.inputImage, 0, 0);
         const imageData = ctx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
@@ -561,10 +550,13 @@ class VoronoiStipplerWGL2{
         while(i < this.samples){
             const x = Math.random() * this.inputImage.width;
             const y = Math.random() * this.inputImage.height;
-            const index = x * 4 + y * tempCanvas.width * 4;
-            const red = imageData.data[ Math.floor(x) * 4 + Math.floor(y) * tempCanvas.width * 4];
-            if(Math.random() * 256 > red){
-                this.points.push({x, y, weight: 1});
+            const index = Math.floor(x) * 4 + Math.floor(y) * this.inputImage.width * 4;
+            const red = imageData.data[ index ];
+            const blue = imageData.data[ index + 1 ];
+            const green = imageData.data[ index + 2 ];
+            
+            if(Math.random() * 255 > red * 0.30 + 0.59 * blue + 0.11 * green){
+                this.points.push({x, y, weight: 255});
                 i++;
             }
         }
@@ -583,8 +575,12 @@ class VoronoiStipplerWGL2{
     }
 
     _renderFinalOutput(){
+        this.gl.clearColor(1.0, 1.0, 1.0, 1.0);
         this.gl.useProgram(this.finalOutput.shaderProgram);
+        
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
         this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
+        this.gl.uniform1f(this.finalOutput.uniforms.scaleFactor, this.scale / this.inputImage.width);
 
         /* Render Voronoi to framebuffer */
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
@@ -604,6 +600,7 @@ class VoronoiStipplerWGL2{
         
         /* this was originally done in webgl 1.0 which has no vaos */
         this.gl.vertexAttribDivisor(this.voronoi.attributes.instancedPosition, 0);
+        this.gl.clearColor(0.0, 0.0, 0.0, 1.0);
     }
     
     /**
@@ -674,11 +671,11 @@ class VoronoiStipplerWGL2{
 
     /* Renders a 1xcells textures containing the centroid of each cell of the Voronoi diagram
      * encoded in the colors of each pixel */
-    _renderCentroid(framebuffer){
+    _renderCentroid(start, end, framebuffer){
         this.gl.useProgram(this.centroid.shaderProgram);
 
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, framebuffer);
-        this.gl.viewport(0, 0, this.samples, this.inputImage.height * this.voronoiUpscaleConstant);
+        this.gl.viewport(0, 0, end - start, this.inputImage.height * this.voronoiUpscaleConstant);
         this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
         
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.quadPositionBuffer);
@@ -691,10 +688,7 @@ class VoronoiStipplerWGL2{
             false,
             modelViewMatrix
         );
-        this.gl.uniform2fv(
-            this.centroid.uniforms.windowDimensions,
-            new Float32Array([this.inputImage.width * this.voronoiUpscaleConstant, this.inputImage.height * this.voronoiUpscaleConstant])
-        );
+        this.gl.uniform1i(this.centroid.uniforms.sampleOffset, start);
 
         /* Setup Texture Samplers */
         this.gl.uniform1i(this.centroid.uniforms.imageSampler, 0);
@@ -703,11 +697,11 @@ class VoronoiStipplerWGL2{
     }
 
     /* Renders the 1xsamples output of the centroids to a canvas */
-    _renderOutput(debug){
+    _renderOutput(start, end){
         this.gl.useProgram(this.output.shaderProgram);
         
         this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
-        this.gl.viewport(0, 0, this.samples, 1);
+        this.gl.viewport(0, 0, end - start, 1);
         this.gl.clear(this.gl.COLOR_BUFFER_BIT | this.gl.DEPTH_BUFFER_BIT);
         
         this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.buffers.outputIndiceBuffer);
@@ -725,32 +719,29 @@ class VoronoiStipplerWGL2{
         );
 
         this.gl.uniform1i(this.output.uniforms.intermediateSampler, 2);
-        this.gl.bindBufferBase(this.gl.TRANSFORM_FEEDBACK_BUFFER, 0, this.buffers.instancedPositionBuffer);
+        this.gl.bindBufferRange(
+            this.gl.TRANSFORM_FEEDBACK_BUFFER,
+            0,
+            this.buffers.instancedPositionBuffer,
+            start * 3 * 4, 
+            end * 3 * 4
+        );
 
         this.gl.beginTransformFeedback(this.gl.POINTS);
-        this.gl.drawArrays(this.gl.POINTS, 0, this.samples);
+        this.gl.drawArrays(this.gl.POINTS, 0, end - start);
         this.gl.endTransformFeedback();
 
-        /* if debug, print out buffer contents */
-        if(debug){
-            const data = new Float32Array(this.samples * 3);
-            this.gl.getBufferSubData(
-                this.gl.TRANSFORM_FEEDBACK_BUFFER,
-                0,
-                data);
-        }
-
         this.gl.bindBufferBase(this.gl.TRANSFORM_FEEDBACK_BUFFER, 0, null);
-
     }
     
     render(){
-        if(!this.imageLoaded){
-            return;
+        this._renderVoronoi(this.frameBuffers.voronoi); 
+        for(let i = 0 ; i < Math.ceil(this.samples/this.maxTextureSize); i++){
+            const start = Math.floor(i * this.maxTextureSize);
+            const end = Math.min(this.samples, Math.ceil((i + 1) * this.maxTextureSize));
+            this._renderCentroid(start, end, this.frameBuffers.intermediate);
+            this._renderOutput(start, end);
         }
-        this._renderVoronoi(this.frameBuffers.voronoi);
-        this._renderCentroid(this.frameBuffers.intermediate);
-        this._renderOutput(true);
     }
     getCanvasDOMNode(){
         return this.canvas;

@@ -1,6 +1,13 @@
 <!doctype html>
 <html>
 <head>
+    <!-- Bootstrap -->
+    <script src="https://code.jquery.com/jquery-3.1.1.slim.min.js" integrity="sha256-/SIrNqv8h6QGKDuNoLGA4iret+kyesCkHGzVUUV0shc=" crossorigin="anonymous"></script>
+
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous">
+    <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap-theme.min.css" integrity="sha384-rHyoN1iRsVXV4nD0JutlnGaslCJuC7uwjduW9SVrLvRYooPp2bWYgmgJQIXwl/Sp" crossorigin="anonymous">
+    <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha384-Tc5IQib027qvyjSMfHjOMaLkfuWVxZxUPnCJA7l2mCWNIpG9mGCD8wGNIcPD7Txa" crossorigin="anonymous"></script>
+
     <style>
         canvas{
             border: 1px solid #FF0000;
@@ -8,13 +15,74 @@
     </style>
 </head>
 <body>
+    <img id="sampleImage" src="static/a.jpg">
+    <div id ="preview"> </div>
+    <form  id ="loadForm">>
+        <input type="file" accept="image/*" id="fileUploader">
+        Iterations: <input min="1" max="1000" value="20" id="iterations" type="number">
+        Max Stipple Width (px): <input min="1" max="1000" value="5" id="scale" type="number">
+        Number of Stipples: <input min="1" max="1000000" value="2000" id="stipples" type="number">
+        <button disabled id="submitButton" type="submit">Stipple!</button>
+    </form>
     <script src="dist/bundle.js"></script>
-    <img src="static/cat.jpg">
     <script>
-        const voroni = new VoroniRenderer(100, 150, true);
-        const canvas = voroni.getCanvasDOMNode();
-        const body = document.getElementsByTagName("BODY")[0];
-        body.appendChild(canvas);
+        const fileUploader = document.getElementById('fileUploader');
+        const loadForm = document.getElementById('loadForm');
+        const preview = document.getElementById('preview');
+        const submitButton = document.getElementById('submitButton');
+        const iterationsInput = document.getElementById('iterations');
+        const scaleInput = document.getElementById('scale');
+        const stipplesInput = document.getElementById('stipples');
+
+        let file = null;
+        let fileValid = false;
+        const fileChange = () => {
+            const file = fileUploader.files[0];
+            const prevImage = document.getElementById("imgpreview");
+
+            const img = document.createElement("img");
+            img.classList.add("obj");
+            img.file = file;
+            img.id= "imgpreview";
+            
+            if(!prevImage){
+                preview.appendChild(img);
+            }
+            else{
+                prevImage.replaceWith(img);
+            }
+            const reader = new FileReader();
+            reader.onload = (
+                function(aImg){
+                    return function(e) {
+                        aImg.src = e.target.result;
+                    }; 
+            })(img);
+            reader.readAsDataURL(file);
+
+            fileValid = true;
+            if(fileValid){
+                submitButton.disabled = false;
+            }
+        }
+
+        const formSubmit = (event) => {
+            event.preventDefault();
+            const img = document.getElementById("imgpreview");
+
+            /* Execute voronoi */
+            const numStipples = Number(stipplesInput.value);
+            const numIterations = Number(iterationsInput.value);
+            const scale = Number(scaleInput.value);
+            const voroni = new VoroniRenderer(numStipples, numIterations, img, scale);
+            const canvas = voroni.getCanvasDOMNode();
+            img.replaceWith(canvas);
+            console.log(img);
+        }
+
+        loadForm.onsubmit = formSubmit;
+        fileUploader.onchange = fileChange;
+    
         
     </script>
 </body>
