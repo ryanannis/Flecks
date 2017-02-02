@@ -1,27 +1,25 @@
-![Flecks Logo](https://cloud.githubusercontent.com/assets/4493022/22388211/42902c4a-e494-11e6-864a-dcdc03932f7a.png)
+[![Flecks Logo](https://minimumcut.github.io/Flecks/static/logo.png)](https://minimumcut.github.io/Flecks/)
 
 ## What is this?
 This is an pure WebGL implementation of Voronoi Stippling as described in [this](https://www.cs.ubc.ca/labs/imager/tr/2002/secord2002b/secord.2002b.pdf) paper.
-The entire core algorithm could be done in WebGL which makes this very fast compared to similar implementations.
+The entire core algorithm is implemented in WebGL which makes this very fast compared to similar implementations.
 
 ## What does this do?
-This is an artistic photo filter.  By inputting an image it will output a [stippled](https://en.wikipedia.org/wiki/Stippling) version.
+This is an artistic photo filter.  By inputting an image it will output a [stippled](https://en.wikipedia.org/wiki/Stippling) version.  There are configurations for parameters such as supersampling, and number of points.
 
 ## Usage
 
-Github pages is coming soon.
+Visit the page at https://minimumcut.github.io/Flecks/!
 
 ## Images
 
 ## System Requirements
 
-### WebGL 2
+The algorithm is very system intensive and will require significant amounts of GPU memory.  The exact amount depends on the settings used.  Additionally, your graphics card and browser must support WebGL 2 and the EXT_color_buffer_float extension.  Edge and Safari do not support this but the latest versions of Mozilla Firefox, Google Chrome, Opera and Google Ultron do.
 
-Your graphics card and browser must support WebGL 2 and the EXT_color_buffer_float extension.  Edge and Safari do not support this but the latest versions of Mozilla Firefox, Google Chrome, Opera and Google Ultron do.
+## How it Works
 
-### Settings
-
-This program is limited by GPU memory.  A less memory-intensive algorithm is possible but is very complicated to implement.  Most modern GPUs will work, but a discrete card is reccomended for high amounts of stipples (20k+), high-res input images or supersampling.
+The algorithm first randomly generates points on the canvas.  It then generates a Voronoi diagram using the points as generators.  We then use the GPU to scan the pixels and calculate their centroids weighted by the colors of the input image, repeatedly moving the generators to the centroids.  This has the property of making the points spread out nicely and concentrate in the dark areas.  More details can be found in the linked paper.
 
 ## Attribution 
 
