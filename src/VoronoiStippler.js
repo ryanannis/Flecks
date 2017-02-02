@@ -514,7 +514,7 @@ class VoronoiStipplerWGL2{
         this.iterations--;
         if(this.iterations > 0){
             //Delay is to prevent it from freezing up system
-            setTimeout(() => requestAnimationFrame(() => this.tick()),  300);
+            setTimeout(() => requestAnimationFrame(() => this.tick()),  1000);
             this.render();
 
             this._renderFinalOutput();

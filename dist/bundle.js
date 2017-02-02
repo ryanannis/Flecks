@@ -618,7 +618,7 @@
 	                    return requestAnimationFrame(function () {
 	                        return _this2.tick();
 	                    });
-	                }, 300);
+	                }, 1000);
 	                this.render();
 
 	                this._renderFinalOutput();
