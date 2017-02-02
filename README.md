@@ -27,8 +27,8 @@ Additionally, your graphics card and browser must support WebGL 2 and the EXT_co
 
 ## Attribution 
 
-Credits to Adrian Secord for the original paper this implementation was based off, [Matt Keeter](www.mattkeeter.com) for his approach to generating centroidal Voronoi diagrams on GPU and http://www.comp.nus.edu.sg/~tants/pba.html for original algorithm for generating centroidal Voronoi graphs.
+Credits to Adrian Secord for the original paper this implementation was based off, [Matt Keeter](www.mattkeeter.com) for his approach to generating centroidal Voronoi diagrams on GPU and http://www.comp.nus.edu.sg/~tants/pba.html for the information on generating centroidal Voronoi graphs on the GPU.
 
 ## License 
 
-GPL
+GPL V2
