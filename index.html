@@ -1,6 +1,23 @@
 <!doctype html>
 <html>
 <head>
+    <title>
+        Flecks
+    </title>
+    <script>
+        (function(i,s,o,g,r,a,m){i['GoogleAnalyticsObject']=r;i[r]=i[r]||function(){
+        (i[r].q=i[r].q||[]).push(arguments)},i[r].l=1*new Date();a=s.createElement(o),
+        m=s.getElementsByTagName(o)[0];a.async=1;a.src=g;m.parentNode.insertBefore(a,m)
+        })(window,document,'script','https://www.google-analytics.com/analytics.js','ga');
+
+        ga('create', 'UA-91363108-1', 'auto');
+        ga('send', 'pageview');
+    </script>
+
+    <!-- Metadata -->
+    <meta charset="utf-8">
+    <meta name="description" content="Automatically apply stippling to your images and photos!">
+    <meta name="keywords" content="image, filter, stipple, image filter, photo filter, photo">
     <!-- Bootstrap -->
     <script src="https://code.jquery.com/jquery-3.1.1.slim.min.js" integrity="sha256-/SIrNqv8h6QGKDuNoLGA4iret+kyesCkHGzVUUV0shc=" crossorigin="anonymous"></script>
 
@@ -89,7 +106,7 @@
                         </label>
                         <hr>
                         <div>
-                            <span class="glyphicon glyphicon-warning-sign" aria-hidden="true"></span> This application is extremely GPU intensive.  You might want a discrete GPU to run any large processes.</div>
+                            <span class="glyphicon glyphicon-warning-sign" aria-hidden="true"></span> This application is uses a very large amount of GPU memory.  If you get a blank image try lowering the settings.</div>
                         <hr>
                         <h4>
                             Settings
@@ -135,23 +152,23 @@
                 <p style="color: #555; text-align: center"> This application utilizes advanced graphics features only available in WebGL2.  It can be found in the latest versions of Google Chrome, Mozilla Firefox, Opera and Google Ultron.</p>
             </div>
              <h3> Examples </h3>
-            <div class="row" style="margin-top: 50px;" id="footer">
-                    <div class="col-sm-3">
-                    <img class="sampleImage" src="static/samples/cat.png">
-                        <p>10000 Stipples, 100 Iterations, 4 Max Pixel Size, 4x Supersampling</p>
-                    </div>
-                     <div class="col-sm-3">
+            <div class="row" style="margin-top: 50px;">
+                     <div class="col-sm-4">
                     <img class="sampleImage" src="static/samples/lenna_stipples.png">
                         <p>9000 Stipples, 100 Iterations, 6 Max Pixel Size, 4x Supersampling</p>
                     </div>
-                    <div class="col-sm-3">
+                    <div class="col-sm-4">
                     <img class="sampleImage" src="static/samples/eagle.png">
                         <p>8000 Stipples, 100 Iterations, 5 Max Pixel Size, 4x Supersampling</p>
                     </div>
-                    <div class="col-sm-3">
+                    <div class="col-sm-4">
                     <img class="sampleImage" src="static/samples/tiger.png">
                         <p>14000 Stipples, 100 Iterations, 4 Max Pixel Size, 4x Supersampling</p>
                     </div>
+            </div>
+            <div class="row">
+            <div class="col-sm-4">
+                    
             </div>
 
             <div class="row" style="margin-top: 50px;" id="footer">
