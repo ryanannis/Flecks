@@ -59,6 +59,9 @@
         #imgpreview{
             max-width: 100%
         }
+        .sampleImage{
+            width: 100%;
+        }
     </style>
 </head>
 <body>
@@ -119,7 +122,7 @@
                     </form>
                 </div>
             </div>
-            <div id="incompatibilityMessage" style="display: none">
+            <div class="row" id="incompatibilityMessage" style="display: none">
                 <div style="margin: 0 auto; width: 260px;" >
                     <a href="https://www.google.com/chrome/">
                         <img src="static/chrome_stippled.png">
@@ -130,6 +133,32 @@
                 </div>
                 <h3 style="text-align: center">Sorry! your browser is not compatible with WebGL2.</h3>
                 <p style="color: #555; text-align: center"> This application utilizes advanced graphics features only available in WebGL2.  It can be found in the latest versions of Google Chrome, Mozilla Firefox, Opera and Google Ultron.</p>
+            </div>
+             <h3> Setting </h3>
+            <div class="row" style="margin-top: 50px;" id="footer">
+                    <div class="col-sm-3">
+                    <img class="sampleImage" src="static/samples/cat.png">
+                        <p>10000 Stipples, 100 Iterations, 4 Max Pixel Size, 4x Supersampling</p>
+                    </div>
+                     <div class="col-sm-3">
+                    <img class="sampleImage" src="static/samples/lenna_stipples.png">
+                        <p>9000 Stipples, 100 Iterations, 6 Max Pixel Size, 4x Supersampling</p>
+                    </div>
+                    <div class="col-sm-3">
+                    <img class="sampleImage" src="static/samples/eagle.png">
+                        <p>8000 Stipples, 100 Iterations, 5 Max Pixel Size, 4x Supersampling</p>
+                    </div>
+                    <div class="col-sm-3">
+                    <img class="sampleImage" src="static/samples/tiger.png">
+                        <p>14000 Stipples, 100 Iterations, 4 Max Pixel Size, 4x Supersampling</p>
+                    </div>
+            </div>
+
+            <div class="row" style="margin-top: 50px;" id="footer">
+                <hr>
+                    <div class="col-sm-12">
+                        <small style="color: #555">Made by <a href="https://github.com/minimumcut">Ryan Annis</a>.  Licensed under the GPL v3.</small>
+                    </div>
             </div>
         </div>    
     </div>

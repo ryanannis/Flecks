@@ -13,11 +13,11 @@ Visit the application at https://minimumcut.github.io/Flecks/
 
 ## Images
 
-[![Sample Image 1](https://minimumcut.github.io/Flecks/static/samples/lenna_stipples.png)]
+![Sample Image 1](https://minimumcut.github.io/Flecks/static/samples/lenna_stipples.png)
 
-[![Sample Image 2](https://minimumcut.github.io/Flecks/static/samples/tiger.png)]
+![Sample Image 2](https://minimumcut.github.io/Flecks/static/samples/tiger.png)
 
-[![Sample Image 2](https://minimumcut.github.io/Flecks/static/samples/cat.png)]
+![Sample Image 3](https://minimumcut.github.io/Flecks/static/samples/cat.png)
 
 ## System Requirements
 
