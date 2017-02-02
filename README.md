@@ -15,11 +15,10 @@ Visit the page at https://minimumcut.github.io/Flecks/!
 
 ## System Requirements
 
-The algorithm is very system intensive and will require significant amounts of GPU memory.  The exact amount depends on the settings used.  Additionally, your graphics card and browser must support WebGL 2 and the EXT_color_buffer_float extension.  Edge and Safari do not support this but the latest versions of Mozilla Firefox, Google Chrome, Opera and Google Ultron do.
+The algorithm is very system intensive and will require significant amounts of GPU memory.  The exact amount depends on the settings used.
 
-## How it Works
 
-The algorithm first randomly generates points on the canvas.  It then generates a Voronoi diagram using the points as generators.  We then use the GPU to scan the pixels and calculate their centroids weighted by the colors of the input image, repeatedly moving the generators to the centroids.  This has the property of making the points spread out nicely and concentrate in the dark areas.  More details can be found in the linked paper.
+Additionally, your graphics card and browser must support WebGL 2 and the EXT_color_buffer_float extension.  Edge and Safari do not support this but the latest versions of Mozilla Firefox, Google Chrome, Opera and Google Ultron do.
 
 ## Attribution 
 
