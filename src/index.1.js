@@ -9,17 +9,16 @@ const scaleInput = document.getElementById('scale');
 const stipplesInput = document.getElementById('stipples');
 const supersamplingInput = document.getElementById('supersampling');
 const progressContainer = document.getElementById('progress');
-const fileInput = document.getElementById('file-input');
 const progressBar = document.getElementById('progressbar');
-const webglapp = document.getElementById('webglapp');
-const incompatibilityMessage = document.getElementById('incompatibilityMessage');
-
 
 let file = null;
 let fileValid = false;
 let activeCanvas = null;
 let lastImageDomNode = null;
-let unscaledImage = null;
+
+const showProgressBar = () => {
+    
+}
 
 const getCanvasValid = () => {
     /* Test for Proper WebGL Suppport*/
@@ -28,33 +27,24 @@ const getCanvasValid = () => {
     if(!testCtx){
         return false;
     }
-    const float_texture_ext = testCtx.getExtension('EXT_color_buffer_float');
+    const float_texture_ext = this.gl.getExtension('EXT_color_buffer_float');
     if(!float_texture_ext){
         return false;
     }
     return true;
 }
 
-let webglenabled = getCanvasValid();
-if(!webglenabled){
-    webglapp.style.display = "none";
-    incompatibilityMessage.style.display = "block";
-}
 
 
 const fileChange = () => {
     const file = fileUploader.files[0];
     const prevImage = document.getElementById("imgpreview");
-    const canvas = document.getElementById("activeCanvas");
+    const canvas = document.getElementById("renderCanvas");
 
     const img = document.createElement("img");
-    unscaledImage = document.createElement("img");
-    unscaledImage.classList.add("obj");
-    unscaledImage.file = file;
     img.classList.add("obj");
     img.file = file;
     img.id= "imgpreview";
-    img.classList.add("center-block")
     
     if(prevImage){
        prevImage.replaceWith(img);
@@ -69,7 +59,6 @@ const fileChange = () => {
     reader.onload = (
         function(aImg){
             return function(e) {
-                unscaledImage.src = e.target.result;
                 aImg.src = e.target.result;
             }; 
     })(img);
@@ -77,14 +66,7 @@ const fileChange = () => {
 
     fileValid = true;
     if(fileValid){
-        fileInput.className = "file-input-inactive";
-        activeCanvas = null;
         submitButton.disabled = false;
-        fileUploader.disabled = false;
-    }else{
-        fileInput.className = "file-input-inactive";
-        activeCanvas = null;
-        submitButton.disabled = true;
         fileUploader.disabled = false;
     }
 }
@@ -94,12 +76,12 @@ const handleOnIterate = (numIterations) => (iterationsLeft) => {
         fileUploader.disabled = false;
         submitButton.disabled = false;
         progressContainer.style.display = 'none';
+        console.log('ding');
     }
     else{
-        progressContainer.style.display = 'block';
-        console.log(Math.ceil((numIterations-iterationsLeft)/numIterations * 100)  + '%');
-        progressBar['aria-valuenow'] = Math.ceil((numIterations-iterationsLeft)/numIterations * 100);
-        progressBar.style.width = Math.ceil((numIterations-iterationsLeft)/numIterations * 100 )+ '%';
+        console.log((numIterations-iterationsLeft)/numIterations);
+        progressBar['aria-valuenow'] = Math.ceil((numIterations-iterationsLeft)/numIterations) * 100;
+        progressBar.style.width = Math.ceil((numIterations-iterationsLeft)/numIterations) * 100 + '%';
     }
 };
 
@@ -108,6 +90,9 @@ const formSubmit = (event) => {
     fileUploader.disabled = true;
     submitButton.disabled = true;
     
+    if(document.getElementById("imgpreview")){
+        lastImageDomNode = document.getElementById("imgpreview");
+    }
     
     /* Execute voronoi */
     const numStipples = Number(stipplesInput.value);
@@ -117,19 +102,17 @@ const formSubmit = (event) => {
     const voroni = new VoronoiStippler(
         numStipples,
         numIterations,
-        unscaledImage,
+        lastImageDomNode,
         scale,
         supersamplingAmount,
         handleOnIterate(numIterations)
     );
     const canvas = voroni.getCanvasDOMNode();
-    canvas.classList.add("center-block");
     if(activeCanvas){
         activeCanvas.replaceWith(canvas);
     }
     else{
-        const prevImage = document.getElementById("imgpreview");
-        prevImage.replaceWith(canvas);
+        lastImageDomNode.replaceWith(canvas);
     }
     activeCanvas = canvas;
 }

@@ -7,24 +7,132 @@
     <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap.min.css" integrity="sha384-BVYiiSIFeK1dGmJRAkycuHAHRg32OmUcww7on3RYdg4Va+PmSTsz/K68vbdEjh4u" crossorigin="anonymous">
     <link rel="stylesheet" href="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/css/bootstrap-theme.min.css" integrity="sha384-rHyoN1iRsVXV4nD0JutlnGaslCJuC7uwjduW9SVrLvRYooPp2bWYgmgJQIXwl/Sp" crossorigin="anonymous">
     <script src="https://maxcdn.bootstrapcdn.com/bootstrap/3.3.7/js/bootstrap.min.js" integrity="sha384-Tc5IQib027qvyjSMfHjOMaLkfuWVxZxUPnCJA7l2mCWNIpG9mGCD8wGNIcPD7Txa" crossorigin="anonymous"></script>
-
     <style>
-        canvas{
-            border: 1px solid #FF0000;
+        .file-input-active{
+            width: 100%;
+            height: 150px;
+            text-align: center;
+            vertical-align: middle;
+            line-height: 150px;   
+            font-size: 20px;
+        }
+        .file-input-inactive{
+            width: 100%;
+            padding-top: 10px;
+            padding-right: 16px;
+            padding-bottom: 10px;
+            padding-left: 16px;
+            margin: 0 auto;
+            margin-top: 10px;
+            margin-bottom: 10px;
+            text-align: center;
+            font-size: 14px;
+        }
+        #file-input{
+            color: #555;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            border-top-left-radius: 4px;
+            border-top-right-radius: 4px;
+            border-bottom-right-radius: 4px;
+            border-bottom-left-radius: 4px;
+        }
+        #file-input:hover{
+            background-color: #fcfcfc;
+        }
+
+        #gh-logo-container{
+            line-height: 119px;   
+            height: 119px;
+            text-align: right;
+            vertical-align: middle;
+        }        
+        #gh-logo{
+            opacity: 0.8;
+        }
+        #gh-logo:hover{
+            opacity: 1.0;
+        }
+        #activeCanvas{
+            max-width: 100%;
+        }
+        #imgpreview{
+            max-width: 100%
         }
     </style>
 </head>
 <body>
-    <img id="sampleImage" src="static/a.jpg">
-    <div id ="preview"> </div>
-    <form  id ="loadForm">>
-        <input type="file" accept="image/*" id="fileUploader">
-        Iterations: <input min="1" max="1000" value="20" id="iterations" type="number">
-        Max Stipple Width (px): <input min="1" max="1000" value="5" id="scale" type="number">
-        Number of Stipples: <input min="1" max="1000000" value="2000" id="stipples" type="number">
-        Supersampling: <input min="1" max="4" value="1" id="supersampling" type="number">
-        <button disabled id="submitButton" type="submit">Stipple!</button>
-    </form>
+    <div class="row">
+        <div style="padding-top: 20px;" class="col-sm-8 col-md-push-2">
+            <div class="row" style="padding-bottom: 20px;">
+                <div class="col-sm-6 ">
+                    <img src="static/logo.png">
+                </div>
+                <div class="col-sm-6" id="gh-logo-container">
+                    <a href="https://github.com/minimumcut/Flecks"><img src="static/github_sm.png" id="gh-logo"></a>
+                </div>
+            </div>
+            <div id="webglapp" class="row" style="padding-bottom: 20px;">
+                <div class="col-sm-12">
+                    <div id ="preview"> </div>
+                    <div id="progress" style="display:none;" style=" margin-bottom: 10px; margin-top: 10px;" class="progress">
+                        <div id="progressbar" class="progress-bar" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" style="width: 0%;">
+                        </div>
+                    </div>
+                    <form id ="loadForm">
+                        <label id="file-input" class="file-input-active">
+                             <input type="file" accept="image/*" style="display:none" class="fileUploader" id="fileUploader"> 
+                             Select an Image <small><small><small>(Max 1000x1000)</small></small></small>
+                        </label>
+                        <hr>
+                        <div>
+                            <span class="glyphicon glyphicon-warning-sign" aria-hidden="true"></span> This application is extremely GPU intensive and has a high probability of crashing WebGL for large inputs.</div>
+                        <hr>
+                        <h4>
+                            Settings
+                        </h4>
+                        <div class="form-group">
+                            <hr>
+                            <div class="row" style="padding-bottom: 20px;">
+                                <div class="col-sm-6">
+                                    <label for="iterations">Iterations</label>
+                                    <input min="1" class="form-control" max="1000" value="20" id="iterations" type="number">
+                                    <p class="help-block">Number of times the program runs.  Will make processing slower but more accurate.</p>
+                                    
+                                    <label for="scale">Max Stipple Size</label>
+                                    <input min="1" class="form-control" max="1000" value="5" id="scale" type="number">
+                                    <p class="help-block">The maximum possible width of a stipple in pixels.</p>  
+                                </div>
+                                <div class="col-sm-6">
+                                    <label for="stipples">Number of Sipples</label>
+                                    <input min="1" class="form-control" max="1000000" value="2000" id="stipples" type="number">
+                                    <p class="help-block">The number of stipples that will appear in the image</p>  
+                                    
+                                    <label for="stipples">Supersampling</label>
+                                    <input min="1" class="form-control" max="8" value="1" id="supersampling" type="number">
+                                    <p class="help-block">This increases the rendering resolution.  Be careful since this fumes a lot of GPU memory.</p>
+                                </div>
+                            </div>
+                             <button class="btn btn-default btn-lg center-block" disabled id="submitButton" type="submit">Stipple!</button>
+                        </div>
+                        
+                    </form>
+                </div>
+            </div>
+            <div id="incompatibilityMessage" style="display: none">
+                <div style="margin: 0 auto; width: 512px;" >
+                    <a href="https://www.google.com/chrome/">
+                        <img src="static/chrome_stippled.png">
+                    </a>
+                    <a href="https://www.mozilla.org/en-US/firefox/new/">
+                        <img src="static/firefox_stippled.png">
+                    </a>
+                </div>
+                <h3 style="text-align: center">Sorry! your browser is not compatible with WebGL2.</h3>
+                <p style="color: #555; text-align: center"> This application utilizes advanced graphics features only available in WebGL2.  It can be found in the latest versions of Google Chrome, Mozilla Firefox, Opera and Google Ultron.</p>
+            </div>
+        </div>    
+    </div>
     <script src="dist/bundle.js"></script>
 </body>
 </html>

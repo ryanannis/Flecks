@@ -164,7 +164,6 @@ class VoronoiStipplerWGL2{
     */
     constructor(samples, iterations, inputImage, scale, supersamplingAmount, onIterate){
         this.inputImage = inputImage;
-        console.log(supersamplingAmount);
         this.supersampling = supersamplingAmount;
         this.onIterate = onIterate;
         this.scale = scale;
@@ -203,6 +202,7 @@ class VoronoiStipplerWGL2{
     _initGL(){
         this.canvas.width = Math.max(this.inputImage.width);
         this.canvas.height = this.inputImage.height;
+        this.canvas.id = "activeCanvas";
 
         this.maxTextureSize = this.gl.getParameter(this.gl.MAX_TEXTURE_SIZE);
 
@@ -506,10 +506,15 @@ class VoronoiStipplerWGL2{
         this.gl.bufferData(this.gl.ARRAY_BUFFER, new Uint32Array(indices), this.gl.STATIC_DRAW);
     }
 
+    halt(){
+        this.iterations = 0;
+    }
+    
     tick(){
         this.iterations--;
         if(this.iterations > 0){
-            setTimeout(() => requestAnimationFrame(() => this.tick()),  10);
+            //Delay is to prevent it from freezing up system
+            setTimeout(() => requestAnimationFrame(() => this.tick()),  300);
             this.render();
 
             this._renderFinalOutput();
@@ -525,7 +530,9 @@ class VoronoiStipplerWGL2{
         this._renderFinalOutput();
     }
 
-    /* Generates intial data with rejection sampling */
+    /* Generates intial data using rejection sampling.
+     * See the Wikipedia page on intensity to see where these 
+     * numbers come from. */
     _genInitialData(){
         this.points = [];
         /* Use temporary canvas to load image to get luminesence values.*/
@@ -552,7 +559,7 @@ class VoronoiStipplerWGL2{
     }
 
     /**
-     * Encodes an int as a OpenGL formatted float.
+     * Encodes an int as a nomralized float..
      * @param {Number} i Must be a whole number
      * @return {Float32Array} A 3 dimensional array representing i
     */
