@@ -13,16 +13,21 @@ Visit the application at https://minimumcut.github.io/Flecks/
 
 ## Images
 
+[![Sample Image 1](https://minimumcut.github.io/Flecks/static/samples/lenna_stipples.png)]
+
+[![Sample Image 2](https://minimumcut.github.io/Flecks/static/samples/tiger.png)]
+
+[![Sample Image 2](https://minimumcut.github.io/Flecks/static/samples/cat.png)]
+
 ## System Requirements
 
-The algorithm is very system intensive and will require significant amounts of GPU memory.  The exact amount depends on the settings used.
-
+The algorithm is very system intensive and will require significant amounts of GPU memory.  You should avoid heavy loads when not using a dedicated GPU.
 
 Additionally, your graphics card and browser must support WebGL 2 and the EXT_color_buffer_float extension.  Edge and Safari do not support this but the latest versions of Mozilla Firefox, Google Chrome, Opera and Google Ultron do.
 
 ## Attribution 
 
-Credits to Adrian Secord for the original paper this implementation was based off, [Matt Keeter](www.mattkeeter.com) for his approach to generating centroidal Voronoi diagrams on GPU and http://www.comp.nus.edu.sg/~tants/pba.html for the scanning GPU algorithm.
+Credits to Adrian Secord for the original paper this implementation was based off, [Matt Keeter](www.mattkeeter.com) for his approach to generating centroidal Voronoi diagrams on GPU and http://www.comp.nus.edu.sg/~tants/pba.html for original algorithm for generating centroidal Voronoi graphs.
 
 ## License 
 
