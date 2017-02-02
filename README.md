@@ -9,7 +9,7 @@ This is an artistic photo filter.  By inputting an image it will output a [stipp
 
 ## Usage
 
-Visit the page at https://minimumcut.github.io/Flecks/!
+Visit the application at https://minimumcut.github.io/Flecks/
 
 ## Images
 
